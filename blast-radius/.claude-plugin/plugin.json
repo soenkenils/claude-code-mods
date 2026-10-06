@@ -1,0 +1,7 @@
+{
+  "name": "blast-radius",
+  "version": "0.1.0",
+  "description": "Holds risky Bash commands, shows what they would hit, and waits for Proceed or Cancel.",
+  "author": { "name": "Sönke" },
+  "types": "./types/index.d.ts"
+}

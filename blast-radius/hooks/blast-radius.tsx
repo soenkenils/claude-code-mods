@@ -1,12 +1,14 @@
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
-import type { BlastRadiusHeld, BlastRadiusRisk } from "../types";
+import type { BlastRadiusHeld, BlastRadiusLine } from "../types";
 import { classify } from "./classify";
+import { measure } from "./report";
 
 const PANE = "blast-radius";
-const SHOWN = 8;
-const held = atom({ plugin: "blast-radius", key: "held" } as const, null);
+// Change the tag when the held value's fields change: a reload meets what the
+// earlier version stored and reads another tag as null.
+const held = atom({ plugin: "blast-radius", key: "held" } as const, null, { shape: "held-2" });
 
 // The decision lives in the module, not in $.state: every $.state.get of one
 // dispatch reads one moment, so the waiting hook would never see a press.
@@ -59,89 +61,92 @@ export const register: Register = (on) => {
     const { Box, Text } = $.ui.resolve(e);
     const current = await read($, held);
     if (current === null) return <Box><Text dimColor>Nothing held.</Text></Box>;
-    return warning($, e, current);
+    // The frame and the close mark are the pane's; leave room for what is not the list.
+    const room = Math.max(4, Math.min(12, (e.viewport?.rows ?? 24) - 14));
+    return warning($, e, current, { isPane: true, room });
   });
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const current = await read($, held);
     if (current === null || current.where !== "band" || e.props.hasSurvey) return next(e);
-    return warning($, e, current);
+    // The band scrolls past `maxRows`; keep the buttons in view with a short list.
+    const room = Math.max(2, Math.min(8, e.props.maxRows - 7));
+    return warning($, e, current, { isPane: false, room });
   });
 };
 
-function warning($: EngineInterface, e: Parameters<EngineInterface["ui"]["resolve"]>[0], shown: BlastRadiusHeld) {
-  const { Box, Text, Button } = $.ui.resolve(e);
+type Site = { isPane: boolean; room: number };
+type Row = { heading: string } | { line: BlastRadiusLine };
+
+// What a command would hit, as a card: what it does, the command, what it hits,
+// then the choice. Cancel is the one the focus starts on, so Enter alone is safe.
+function warning($: EngineInterface, e: Parameters<EngineInterface["ui"]["resolve"]>[0], shown: BlastRadiusHeld, { isPane, room }: Site) {
+  const { Box, Text, Button, Code } = $.ui.resolve(e);
+  const color = shown.tone === "danger" ? "error" : "warning";
+  const { rows, hidden } = layout(shown.sections, room);
+  const leadWidth = Math.min(8, Math.max(0, ...rows.map((r) => ("line" in r ? r.line.lead?.length ?? 0 : 0))));
+
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Text color="red" bold>⚠ {shown.title}</Text>
-      <Text dimColor>$ {shown.command}</Text>
-      {shown.lines.slice(0, SHOWN).map((line) => <Text>  {line}</Text>)}
-      {shown.lines.length > SHOWN && <Text dimColor>  … and {shown.lines.length - SHOWN} more</Text>}
-      <Box flexDirection="row" gap={2} marginTop={1}>
-        <Button key="proceed" label="Proceed" hotkey="1" plain onPress={() => decide("proceed")} />
-        <Button key="cancel" label="Cancel" hotkey="2" plain onPress={() => decide("cancel")} />
+    <Box flexDirection="column" paddingX={1} borderStyle={isPane ? undefined : "round"} borderColor={color}>
+      <Box flexDirection="row" gap={1}>
+        <Text color={color} weight="semibold">⚠</Text>
+        <Text color={color} weight="semibold" size="heading">{shown.title}</Text>
+      </Box>
+      {isPane && <Text dimColor>Blast Radius is holding this command until you decide.</Text>}
+      <Box borderStyle={isPane ? "round" : undefined} borderColor="subtle" paddingX={isPane ? 1 : 0} marginTop={isPane ? 1 : 0}>
+        <Code source={shown.command} language="bash" />
+      </Box>
+      {rows.length > 0 && (
+        <Box flexDirection="column" marginTop={isPane ? 1 : 0}>
+          {rows.map((row) =>
+            "heading" in row ? (
+              <Box marginTop={isPane ? 1 : 0}>
+                <Text dimColor>{row.heading}</Text>
+              </Box>
+            ) : (
+              <Box flexDirection="row" gap={1}>
+                {leadWidth > 0 && (
+                  <Box width={leadWidth}>
+                    <Text mono color={row.line.leadColor} dimColor={row.line.leadColor === undefined}>{row.line.lead ?? ""}</Text>
+                  </Box>
+                )}
+                <Text mono wrap="truncate-middle">{row.line.text}</Text>
+              </Box>
+            ),
+          )}
+          {hidden > 0 && <Text dimColor>… and {hidden} more</Text>}
+        </Box>
+      )}
+      <Box flexDirection="row" alignItems="center" gap={2} marginTop={1}>
+        <Button key="proceed" label="Run anyway" hotkey="1" plain onPress={() => decide("proceed")} />
+        <Button key="cancel" label="Cancel" hotkey="2" plain variant="primary" autoFocus onPress={() => decide("cancel")} />
+        {isPane && <Text dimColor>Esc cancels</Text>}
       </Box>
     </Box>
   );
 }
 
-function decide(choice: Decision) {
-  if (isHolding && decision === null) decision = choice;
+// Fits the sections into `room` rows: a heading counts a row and shows only
+// above a line that fits; one row at the end is kept for "… and n more".
+function layout(sections: BlastRadiusHeld["sections"], room: number) {
+  const filled = sections.filter((s) => s.lines.length > 0);
+  const total = filled.reduce((n, s) => n + s.lines.length + (s.heading ? 1 : 0), 0);
+  const budget = total > room ? room - 1 : room;
+  const rows: Row[] = [];
+  let hidden = 0;
+  for (const { heading, lines } of filled) {
+    let from = 0;
+    if (heading && rows.length + 2 <= budget) rows.push({ heading });
+    else if (heading) from = lines.length;
+    for (const line of lines.slice(from)) {
+      if (rows.length < budget) rows.push({ line });
+      else hidden++;
+    }
+    hidden += from;
+  }
+  return { rows, hidden };
 }
 
-type Report = { title: string; lines: string[] };
-
-async function measure($: EngineInterface, risk: BlastRadiusRisk, cwd: string): Promise<Report> {
-  const run = async (argv: string[]) => {
-    try {
-      const r = await $.process.run(argv, { cwd });
-      return r.exitCode === 0 ? r.stdout.split("\n").filter(Boolean) : null;
-    } catch {
-      return null;
-    }
-  };
-
-  switch (risk.kind) {
-    case "rm": {
-      if (risk.targets.length === 0) return { title: "Recursive force delete", lines: [] };
-      const entries = (await run(["find", ...risk.targets])) ?? [];
-      const sizes = (await run(["du", "-sh", ...risk.targets])) ?? [];
-      const dirty = (await run(["git", "status", "--porcelain", "--", ...risk.targets])) ?? [];
-      return {
-        title: `Deletes ${entries.length} files and folders`,
-        lines: [
-          ...sizes.map((s) => s.replace(/\s+/, "  ")),
-          ...(dirty.length > 0 ? [`${dirty.length} of them have uncommitted changes:`, ...dirty] : []),
-        ],
-      };
-    }
-    case "git-reset-hard": {
-      const dirty = (await run(["git", "status", "--porcelain", "--untracked-files=no"])) ?? [];
-      return {
-        title: dirty.length > 0 ? `Discards uncommitted changes in ${dirty.length} files` : "Resets the branch (working tree is clean)",
-        lines: dirty,
-      };
-    }
-    case "git-clean": {
-      const extra = risk.flags.filter((f) => /^-[a-zA-Z]*[dxX]/.test(f)).flatMap((f) => f.slice(1).replace(/[^dxX]/g, "").split("").map((c) => `-${c}`));
-      const gone = (await run(["git", "clean", "-n", ...extra])) ?? [];
-      return { title: `Removes ${gone.length} untracked files`, lines: gone.map((l) => l.replace(/^Would remove /, "")) };
-    }
-    case "force-push": {
-      const lost = await run(["git", "log", "--oneline", "HEAD..@{u}"]);
-      if (lost === null) return { title: "Force push (no upstream to compare)", lines: [] };
-      return {
-        title: lost.length > 0 ? `Overwrites ${lost.length} commits on the remote` : "Force push (remote has nothing that would be lost)",
-        lines: lost,
-      };
-    }
-    case "migration": {
-      if (risk.tool === "django") {
-        const plan = (await run(["python", "manage.py", "showmigrations", "--plan"])) ?? [];
-        const pending = plan.filter((l) => l.startsWith("[ ]")).map((l) => l.slice(4));
-        return { title: `Applies ${pending.length} pending migrations`, lines: pending };
-      }
-      return { title: "Runs database migrations", lines: ["Check which database this targets before going on."] };
-    }
-  }
+function decide(choice: Decision) {
+  if (isHolding && decision === null) decision = choice;
 }

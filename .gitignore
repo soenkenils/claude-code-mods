@@ -1,1 +1,3 @@
 .DS_Store
+# Written by the engine beside each mod when it loads.
+**/.claude-plugin/types/

@@ -1,0 +1,70 @@
+{
+  "name": "heads-up",
+  "version": "0.1.0",
+  "description": "Watches the running session and shows a heads-up when something is off: failing tools or tests in a row, edits outside the project, a context spike, or a run that stalls.",
+  "author": { "name": "Sönke" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "failureStreak": {
+      "type": "number",
+      "title": "Failed tool calls in a row",
+      "description": "Show a heads-up after this many failed tool calls in a row. 0 turns it off.",
+      "default": 3,
+      "min": 0
+    },
+    "testFailures": {
+      "type": "number",
+      "title": "Failed test runs in a row",
+      "description": "Show a heads-up after this many failed test runs in a row (npm test, pytest, cargo test, ...). 0 turns it off.",
+      "default": 3,
+      "min": 0
+    },
+    "contextJumpTokens": {
+      "type": "number",
+      "title": "Context jump in one turn (tokens)",
+      "description": "Show a heads-up when a single turn adds at least this many tokens to the context. 0 turns it off.",
+      "default": 40000,
+      "min": 0
+    },
+    "contextPercent": {
+      "type": "number",
+      "title": "Context fill warning (%)",
+      "description": "Show a heads-up when the context window passes this share (a second one at 95%). 0 turns it off.",
+      "default": 80,
+      "min": 0,
+      "max": 100
+    },
+    "stallMinutes": {
+      "type": "number",
+      "title": "Stalled run (minutes)",
+      "description": "Show a heads-up when a tool call has no result, or a running turn shows no activity, for this long. 0 turns it off.",
+      "default": 5,
+      "min": 0
+    },
+    "repeatCalls": {
+      "type": "number",
+      "title": "Same call and result in a row",
+      "description": "Show a heads-up when the same tool call returns the same result this many times in a row. 0 turns it off.",
+      "default": 3,
+      "min": 0
+    },
+    "watchEdits": {
+      "type": "boolean",
+      "title": "Edits outside the project",
+      "description": "Show a heads-up when Edit, Write or NotebookEdit targets a file outside the project folder.",
+      "default": true
+    },
+    "ignorePaths": {
+      "type": "string",
+      "title": "Paths that are fine to edit",
+      "description": "Comma-separated folders that never trigger the outside-the-project heads-up. ~ is your home folder; the system temp folder is always included.",
+      "default": "/tmp,/var/tmp,~/.claude"
+    },
+    "notify": {
+      "type": "boolean",
+      "title": "Native notification",
+      "description": "Also send a native notification for warnings and alerts, so a stalled run reaches you when you are away from the window.",
+      "default": false
+    }
+  }
+}

@@ -1,0 +1,3 @@
+{
+  "modules": ["./heads-up.ts"]
+}

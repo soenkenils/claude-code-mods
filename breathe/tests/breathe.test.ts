@@ -339,30 +339,19 @@ for (const surface of SURFACES) {
 }
 
 describe("on the terminal", () => {
-  test("draws the orb as a grid of cells", async ($, on) => {
+  test("draws words and a bar, and no picture", async ($, on) => {
     core(on);
     await start($);
     await beginTurn($);
-    const ui = await band($, "terminal");
-    const orb = await ui.find({ type: "Raster" });
-    expect(orb?.props.rows).toBe(6);
-    expect(orb?.props.columns).toBe(12);
-    expect(String(orb?.props.cells)).toHaveLength(Math.ceil((12 * 6 * 12) / 3) * 4);
-    expect(await ui.findAll({ type: "Svg" })).toEqual([]);
-    await ui.unmount();
-  });
-
-  test("redraws the orb as the lungs fill", async ($, on) => {
-    const clock = core(on);
-    await start($);
-    await beginTurn($);
-    const ui = await band($, "terminal");
-    const empty = (await ui.find({ type: "Raster" }))?.props.cells;
-    await clock.advance(4000);
-    const full = (await ui.find({ type: "Raster" }))?.props.cells;
-    expect(full).toBeDefined();
-    expect(full).not.toBe(empty);
-    await ui.unmount();
+    // Whatever the room: the default band, a short one, a narrow one.
+    for (const props of [{}, { maxRows: 3 }, { bodyColumns: 40 }]) {
+      const ui = await band($, "terminal", props);
+      expect(await ui.findAll({ type: "Raster" })).toEqual([]);
+      expect(await ui.findAll({ type: "Svg" })).toEqual([]);
+      expect(await ui.find({ type: "Text", text: /Einatmen/ })).toBeDefined();
+      expect(await ui.find({ type: "Text", text: /^─+$|^━+─*$/ })).toBeDefined();
+      await ui.unmount();
+    }
   });
 
   test("colors the phase by theme key so the text follows the person's theme", async ($, on) => {
@@ -370,7 +359,7 @@ describe("on the terminal", () => {
     await start($);
     await beginTurn($);
     const ui = await band($, "terminal");
-    const color = async (word: string) => (await ui.find({ type: "Text", text: new RegExp(word) }))?.props.color;
+    const color = async (word: string) => (await ui.find({ type: "Text", text: new RegExp(`^${word}$`) }))?.props.color;
     expect(await color(DE.in)).toBe("success");
     await clock.advance(4000);
     expect(await color(DE.hold)).toBe("suggestion");
@@ -379,34 +368,17 @@ describe("on the terminal", () => {
     await ui.unmount();
   });
 
-  test("makes the orb smaller where the band is short", async ($, on) => {
-    core(on);
-    await start($);
-    await beginTurn($);
-    const ui = await band($, "terminal", { maxRows: 5 });
-    const orb = await ui.find({ type: "Raster" });
-    expect(orb?.props.rows).toBe(5);
-    expect(orb?.props.columns).toBe(10);
-    await ui.unmount();
-  });
-
-  test("draws one line with a breathing bar where there is no room for the orb", async ($, on) => {
+  test("fills the bar as the lungs fill and empties it as they empty", async ($, on) => {
     const clock = core(on);
     await start($);
     await beginTurn($);
-    for (const props of [{ maxRows: 3 }, { bodyColumns: 40 }]) {
-      const ui = await band($, "terminal", props);
-      expect(await ui.findAll({ type: "Raster" })).toEqual([]);
-      expect(await ui.find({ type: "Text", text: /^─+$|^━+─*$/ })).toBeDefined();
-      await ui.unmount();
-    }
-    // The bar is empty at the start of the breath, full when the lungs are, and empties again.
     const bar = async () => {
-      const ui = await band($, "terminal", { maxRows: 3 });
+      const ui = await band($, "terminal");
       const found = (await ui.findAll({ type: "Text" })).map((t) => t.text).find((t) => /^[━─]+$/.test(t)) ?? "";
       await ui.unmount();
       return found;
     };
+    // Empty at the start of the breath, full when the lungs are, empty again after the exhale.
     expect(await bar()).toMatch(/^─+$/);
     await clock.advance(4000);
     expect(await bar()).toMatch(/^━+$/);

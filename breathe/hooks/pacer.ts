@@ -67,6 +67,18 @@ function fillOf(kind: Kind, progress: number) {
   }
 }
 
+// The countdown before the first breath: from `from` down to 0, a second for each number, so
+// `from + 1` seconds in all. 0 (or less) means no countdown.
+export function countdownMs(from: number) {
+  return from > 0 ? (Math.round(from) + 1) * 1000 : 0;
+}
+
+// The number the countdown shows when the breath begins in `untilBreathMs`, for any time
+// that is left in it (more than 0, at most `countdownMs(from)`).
+export function countdownAt(untilBreathMs: number) {
+  return Math.max(0, Math.ceil(untilBreathMs / 1000) - 1);
+}
+
 // The moment the breath in progress ends on an exhale. A turn that ends before then
 // lets the animation run until it; one that ends in the hold that follows the last
 // exhale is already there, so it ends at once (that last hold is left out).

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { box, cycleMs, frameAt, restAt } from "../hooks/pacer";
+import { box, countdownAt, countdownMs, cycleMs, frameAt, restAt } from "../hooks/pacer";
 
 const SECOND = 1000;
 
@@ -96,5 +96,29 @@ describe("finishing a breath", () => {
 
   test("follows the phase length", () => {
     expect(restAt(box(2), 0, 1 * SECOND)).toBe(6 * SECOND);
+  });
+});
+
+describe("the countdown", () => {
+  test("takes a second for each number from the start down to 0", () => {
+    expect(countdownMs(3)).toBe(4 * SECOND);
+    expect(countdownMs(1)).toBe(2 * SECOND);
+    expect(countdownMs(10)).toBe(11 * SECOND);
+  });
+
+  test("is none for 0 or less", () => {
+    expect(countdownMs(0)).toBe(0);
+    expect(countdownMs(-2)).toBe(0);
+  });
+
+  test("shows each number for its second, ending on 0 just before the breath", () => {
+    // `until` is how long the breath is still away: 4 s at the start of a countdown from 3.
+    expect(countdownAt(4000)).toBe(3);
+    expect(countdownAt(3001)).toBe(3);
+    expect(countdownAt(3000)).toBe(2);
+    expect(countdownAt(2000)).toBe(1);
+    expect(countdownAt(1001)).toBe(1);
+    expect(countdownAt(1000)).toBe(0);
+    expect(countdownAt(1)).toBe(0);
   });
 });

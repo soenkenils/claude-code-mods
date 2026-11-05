@@ -1,6 +1,6 @@
 {
   "name": "breathe",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A breathing guide while Claude works: box breathing as words and a bar above the prompt in the terminal, and an aurora orb that expands and contracts in Claude Desktop. When the turn ends it finishes the breath you are in.",
   "author": { "name": "Sönke" },
   "types": "./types/index.d.ts",

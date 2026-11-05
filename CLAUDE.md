@@ -9,10 +9,11 @@ A collection of Claude Code **mods**: plugins whose behaviour is a TypeScript *h
 - `blast-radius/` holds risky Bash commands (`rm -rf`, `git reset --hard`, `git clean -f`, force push, DB migrations), measures what they would touch, and waits for Proceed/Cancel in a pane (falling back to the above-prompt band).
 - `token-weather/` draws a context-window "forecast" with a sparkline above the prompt.
 - `heads-up/` watches the session (failing tools/tests in a row, edits outside the project, context spikes, stalls, repeated calls) and shows a band plus toasts; never blocks. Thresholds are `userConfig` in its `plugin.json`, read via `register(on, options)`; it also registers a `/heads-up` slash command. See `heads-up/README.md`.
+- `breathe/` shows a box-breathing animation (an aurora orb that expands and contracts, 4-4-4-4) above the prompt while Claude works, and finishes the breath in progress, ending on the exhale, after the turn ends. The breathing (`pacer.ts`) and the drawing (`orb.ts`: a terminal `Raster` and a desktop SVG from one scene) are pure files; a timer ticks about ten frames a second. Options are `userConfig` in its `plugin.json`; it registers `/breathe`. See `breathe/README.md`.
 
 There is no `package.json`, no node_modules and no build step. The engine loads the `.ts`/`.tsx` sources directly.
 
-`.claude-plugin/marketplace.json` at the repo root lists the three mods (`source` is the mod folder), so `/plugin install <mod> --marketplace soenkenils/claude-code-mods` works. Its `description` fields copy each `plugin.json`; update both when one changes, and add an entry when you add a mod. `claude plugin validate .` checks it.
+`.claude-plugin/marketplace.json` at the repo root lists the mods (`source` is the mod folder), so `/plugin install <mod> --marketplace soenkenils/claude-code-mods` works. Its `description` fields copy each `plugin.json`; update both when one changes, and add an entry when you add a mod. `claude plugin validate .` checks it.
 
 ## Commands
 

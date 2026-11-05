@@ -1,0 +1,24 @@
+{
+  "name": "claude-code-mods",
+  "owner": { "name": "Sönke" },
+  "metadata": {
+    "description": "Mods for Claude Code: plugins that draw bands and panes in the terminal and Claude Desktop."
+  },
+  "plugins": [
+    {
+      "name": "token-weather",
+      "source": "./token-weather",
+      "description": "A live forecast of the context window, drawn above the prompt in the terminal and in Claude Desktop."
+    },
+    {
+      "name": "blast-radius",
+      "source": "./blast-radius",
+      "description": "Holds risky Bash commands, shows what they would hit, and waits for Run anyway or Cancel, in the terminal and in Claude Desktop."
+    },
+    {
+      "name": "heads-up",
+      "source": "./heads-up",
+      "description": "Watches the running session and shows a heads-up when something is off: failing tools or tests in a row, edits outside the project, a context spike, or a run that stalls."
+    }
+  ]
+}

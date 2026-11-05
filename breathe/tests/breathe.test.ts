@@ -345,9 +345,9 @@ describe("on the terminal", () => {
     await beginTurn($);
     const ui = await band($, "terminal");
     const orb = await ui.find({ type: "Raster" });
-    expect(orb?.props.rows).toBe(8);
-    expect(orb?.props.columns).toBe(16);
-    expect(String(orb?.props.cells)).toHaveLength(Math.ceil((16 * 8 * 12) / 3) * 4);
+    expect(orb?.props.rows).toBe(6);
+    expect(orb?.props.columns).toBe(12);
+    expect(String(orb?.props.cells)).toHaveLength(Math.ceil((12 * 6 * 12) / 3) * 4);
     expect(await ui.findAll({ type: "Svg" })).toEqual([]);
     await ui.unmount();
   });

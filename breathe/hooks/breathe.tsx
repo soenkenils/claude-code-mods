@@ -17,7 +17,7 @@ import type { Kind } from "./pacer";
 
 const COMMAND = "breathe";
 const FRAME_MS = 100;
-const ORB_ROWS = 8; // The terminal's orb is this many rows tall, or fewer where the band is short.
+const ORB_ROWS = 6; // The terminal's orb is this many rows tall, or fewer where the band is short.
 const MIN_ORB_ROWS = 4;
 const ORB_PIXELS = 112; // The desktop's orb, in CSS pixels.
 

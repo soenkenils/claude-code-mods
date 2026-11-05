@@ -1,4 +1,4 @@
-// The orb from the design (an aurora ball on a dark night sky), drawn two ways from one
+// The orb from the design (an aurora ball on a dark background), drawn two ways from one
 // description of the scene: as a grid of half-block cells for the terminal, and as an
 // SVG for Claude Desktop. Pure, so it is tested and can be rendered to a picture.
 //
@@ -17,7 +17,6 @@ const CLAY = rgb("#D97757");
 const VIOLET = rgb("#8A6FC0");
 const CREAM = rgb("#FAF9F5");
 const SAND = rgb("#E3DACC");
-const STAR_COLORS = ["#FAF9F5", "#FAF9F5", "#E3DACC", "#EBCECE", "#CBCADB"].map(rgb);
 
 // [position, colour, opacity]: a CSS gradient's stops.
 type Stop = readonly [number, Rgb, number];
@@ -44,33 +43,13 @@ const HALO_SIZE = 230 / 130;
 const CORE_SIZE = 75 / 130;
 const TAU = Math.PI * 2;
 
-export type Star = { x: number; y: number; isBig: boolean; color: Rgb; period: number; offset: number };
 export type Blob = { x: number; y: number; r: number };
 export type Scene = {
   halo: { r: number; opacity: number };
   body: { r: number; opacity: number };
   core: { r: number };
   blobs: Blob[];
-  // A star's twinkle is its opacity right now.
-  stars: { star: Star; opacity: number }[];
 };
-
-// The same sky every time: a small generator with a fixed seed.
-const STARS: Star[] = (() => {
-  let seed = 7;
-  const next = () => {
-    seed = (seed * 16807) % 2147483647;
-    return seed / 2147483647;
-  };
-  return Array.from({ length: 14 }, (_, i) => ({
-    x: (next() * 2 - 1) * EXTENT,
-    y: (next() * 2 - 1) * EXTENT,
-    isBig: i % 7 === 0,
-    color: STAR_COLORS[Math.floor(next() * STAR_COLORS.length)]!,
-    period: 3 + next() * 5,
-    offset: next() * 8,
-  }));
-})();
 
 // `fill` is how full the lungs are, 0 to 1; `seconds` is the time since the animation began.
 export function scene(fill: number, seconds: number): Scene {
@@ -84,11 +63,6 @@ export function scene(fill: number, seconds: number): Scene {
       const angle = b.phase + (TAU * seconds) / b.period;
       return { x: bodyR * b.orbit * Math.cos(angle), y: bodyR * b.orbit * Math.sin(angle), r: bodyR * b.size };
     }),
-    stars: STARS.map((star) => ({
-      star,
-      // Between .15 and 1 and back again, as the design's twinkle does.
-      opacity: 0.15 + 0.85 * (0.5 - 0.5 * Math.cos((TAU * (seconds + star.offset)) / star.period)),
-    })),
   };
 }
 
@@ -99,13 +73,6 @@ export function scene(fill: number, seconds: number): Scene {
 export function pixels(s: Scene, width: number, height: number): number[] {
   const unit = Math.min(width, height) / (2 * EXTENT);
   const sky = Math.hypot(width * 0.5, height * 0.58);
-  const starAt = new Map<number, { star: Star; opacity: number }>();
-  for (const lit of s.stars) {
-    const x = Math.floor(width / 2 + lit.star.x * unit);
-    const y = Math.floor(height / 2 + lit.star.y * unit);
-    if (x >= 0 && x < width && y >= 0 && y < height) starAt.set(y * width + x, lit);
-  }
-
   const out: number[] = [];
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -114,9 +81,6 @@ export function pixels(s: Scene, width: number, height: number): number[] {
       const dist = Math.hypot(ux, uy);
 
       let [r, g, b] = ramp(SKY, Math.hypot(x + 0.5 - width / 2, y + 0.5 - height * 0.42) / sky).color;
-      const lit = starAt.get(y * width + x);
-      // A star is a whole pixel here, far bigger than on the desktop: it is dimmed to match.
-      if (lit) [r, g, b] = over([r, g, b], lit.star.color, lit.opacity * 0.45);
 
       const halo = ramp(HALO, dist / s.halo.r);
       [r, g, b] = over([r, g, b], halo.color, halo.opacity * s.halo.opacity);
@@ -184,17 +148,12 @@ export function svg(s: Scene, shown: number): string {
   const len = (n: number) => +(n * SCALE).toFixed(1);
   const circle = (x: number, y: number, r: number, attrs: string) => `<circle cx="${at(x)}" cy="${at(y)}" r="${len(r)}" ${attrs}/>`;
 
-  const stars = s.stars.map(({ star, opacity }) => {
-    const r = star.isBig ? 1.7 : 0.9;
-    return `<circle cx="${at(star.x)}" cy="${at(star.y)}" r="${r}" fill="${hex(star.color)}" opacity="${+opacity.toFixed(2)}"/>`;
-  });
   const blobs = s.blobs.map((b, i) => circle(b.x, b.y, b.r, `fill="url(#blob${i})"`));
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${shown}" height="${shown}">`,
     `<defs>${DEFS}<clipPath id="orb">${circle(0, 0, s.body.r, "")}</clipPath></defs>`,
     `<rect width="${SIZE}" height="${SIZE}" rx="22" fill="url(#sky)"/>`,
-    ...stars,
     circle(0, 0, s.halo.r, `fill="url(#halo)" opacity="${+s.halo.opacity.toFixed(2)}"`),
     `<g filter="url(#soft)" opacity="${+s.body.opacity.toFixed(2)}">`,
     circle(0, 0, s.body.r, `fill="url(#body)"`),

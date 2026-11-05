@@ -30,22 +30,10 @@ describe("the scene", () => {
     close(full.core.r / empty.core.r, 1.15 / 0.5);
   });
 
-  test("the blobs drift and the stars twinkle with time", () => {
+  test("the blobs drift with time", () => {
     const a = scene(0.5, 0);
     const b = scene(0.5, 7);
     expect(Math.abs((b.blobs[0]?.x ?? 0) - (a.blobs[0]?.x ?? 0))).toBeGreaterThan(0.01);
-    expect(Math.abs((b.stars[0]?.opacity ?? 0) - (a.stars[0]?.opacity ?? 0))).toBeGreaterThan(0.01);
-    for (const { opacity } of [...a.stars, ...b.stars]) {
-      expect(opacity).toBeGreaterThanOrEqual(0.15 - 1e-9);
-      expect(opacity).toBeLessThanOrEqual(1);
-    }
-  });
-
-  test("keeps every star inside the picture", () => {
-    for (const { star } of scene(0, 0).stars) {
-      expect(Math.abs(star.x)).toBeLessThanOrEqual(EXTENT);
-      expect(Math.abs(star.y)).toBeLessThanOrEqual(EXTENT);
-    }
   });
 });
 
@@ -72,6 +60,20 @@ describe("the terminal's pixels", () => {
       return grid.filter((color, i) => brightness(color) > brightness(sky[i] ?? 0) + 60).length;
     };
     expect(lit(1)).toBeGreaterThan(lit(0) * 2);
+  });
+
+  test("show only the backdrop outside the orb's glow, at any moment: no stars", () => {
+    const unit = SIZE / (2 * EXTENT);
+    const backdrop = pixels({ ...scene(0, 0), halo: { r: 0.001, opacity: 0 }, body: { r: 0.001, opacity: 0 }, core: { r: 0.001 }, blobs: [] }, SIZE, SIZE);
+    for (const seconds of [0, 2.5, 7.1]) {
+      const grid = pixels(scene(0, seconds), SIZE, SIZE);
+      for (let y = 0; y < SIZE; y++) {
+        for (let x = 0; x < SIZE; x++) {
+          // The empty orb's glow ends at .72 of its largest radius.
+          if (Math.hypot((x + 0.5 - SIZE / 2) / unit, (y + 0.5 - SIZE / 2) / unit) > 0.8) expect(at(grid, x, y)).toBe(at(backdrop, x, y));
+        }
+      }
+    }
   });
 
   test("are the same for the same moment", () => {
@@ -134,7 +136,8 @@ describe("the desktop's svg", () => {
     close(large, 50, 0.1);
   });
 
-  test("draws a star for each star in the sky", () => {
-    expect(svg(scene(0.5, 0), 112).match(/<circle [^>]*fill="#[0-9a-f]{6}" opacity=/g)).toHaveLength(14);
+  test("draws only the orb's own circles, no stars", () => {
+    // The halo, the body, four blobs, the core, and the clip path's copy of the body.
+    expect(svg(scene(0.5, 0), 112).match(/<circle /g)).toHaveLength(8);
   });
 });

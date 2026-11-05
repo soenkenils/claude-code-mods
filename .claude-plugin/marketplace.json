@@ -1,8 +1,6 @@
 {
   "name": "claude-code-mods",
-  "owner": {
-    "name": "Sönke"
-  },
+  "owner": { "name": "Sönke" },
   "metadata": {
     "description": "Mods for Claude Code: plugins that draw bands and panes in the terminal and Claude Desktop."
   },

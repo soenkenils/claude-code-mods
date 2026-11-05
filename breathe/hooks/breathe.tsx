@@ -1,8 +1,9 @@
 // Breathe: a breathing exercise to look at while Claude works.
 //
 // While a turn runs, a band above the prompt breathes in box breathing time (in, hold, out,
-// hold). When the turn ends it does not vanish: it finishes the breath it is in and goes at
-// the end of the exhale.
+// hold), after a short countdown (3, 2, 1, 0). When the turn ends it does not vanish: it
+// finishes the breath it is in and goes at the end of the exhale. A turn that ends during the
+// countdown has no breath to finish, so the band goes at once.
 //
 // One module, two drawings. Claude Desktop gets an aurora orb that expands and contracts, an
 // SVG redrawn for every frame. The terminal gets one line: the phase in words and a bar that
@@ -12,7 +13,7 @@ import { atom, read, update } from "claude-code";
 import type { EngineInterface, PluginOptions, Register, Timer } from "claude-code";
 
 import { scene, svg } from "./orb";
-import { box, frameAt, restAt } from "./pacer";
+import { box, countdownAt, countdownMs, frameAt, restAt } from "./pacer";
 import type { Kind } from "./pacer";
 
 const COMMAND = "breathe";
@@ -26,12 +27,13 @@ const isMuted = atom({ plugin: "breathe", key: "isMuted" } as const, false);
 
 // The words next to the animation. The design is in German.
 const LABELS = {
-  de: { in: "Einatmen", holdIn: "Halten", out: "Ausatmen", holdOut: "Halten", done: "Claude ist fertig · atme zu Ende aus" },
-  en: { in: "Breathe in", holdIn: "Hold", out: "Breathe out", holdOut: "Hold", done: "Claude is done · finish your exhale" },
+  de: { ready: "Mach dich bereit", in: "Einatmen", holdIn: "Halten", out: "Ausatmen", holdOut: "Halten", done: "Claude ist fertig · atme zu Ende aus" },
+  en: { ready: "Get ready", in: "Breathe in", holdIn: "Hold", out: "Breathe out", holdOut: "Hold", done: "Claude is done · finish your exhale" },
 } as const;
 
 // Theme keys, so the text follows the person's theme: green in, clay out, blue for the holds.
 const COLOR: Record<Kind, string> = { in: "success", holdIn: "suggestion", out: "claude", holdOut: "suggestion" };
+const READY_COLOR = "suggestion"; // the countdown
 
 function configFrom(options: PluginOptions) {
   // The manifest's min and max are enforced before this runs; a value that is no number is not.
@@ -44,6 +46,7 @@ function configFrom(options: PluginOptions) {
     pattern: box(phaseSeconds),
     phaseSeconds,
     delayMs: number("startAfterSeconds", 0) * 1000,
+    countdownMs: countdownMs(number("countdownSeconds", 3)),
     labels: options.language === "en" ? LABELS.en : LABELS.de,
   };
 }
@@ -95,26 +98,31 @@ export const register: Register = (on, options) => {
 
     // Reading the time is what redraws the band at every tick.
     const now = await read($, clock);
+    // `elapsed` is negative before the first breath: the wait, then the countdown that ends at 0.
     const elapsed = now - current.startedAt;
     const isOver = current.finishAt !== null && now >= current.finishAt;
-    if (elapsed < 0 || isOver) return next(e);
+    if (elapsed < -cfg.countdownMs || isOver) return next(e);
 
-    const frame = frameAt(cfg.pattern, elapsed);
-    const label = cfg.labels[frame.kind];
+    const isCounting = elapsed < 0;
+    const frame = frameAt(cfg.pattern, Math.max(0, elapsed));
+    const shown = isCounting
+      ? { label: cfg.labels.ready, color: READY_COLOR, fill: 0, number: countdownAt(-elapsed) }
+      : { label: cfg.labels[frame.kind], color: COLOR[frame.kind], fill: frame.fill, number: frame.secondsLeft };
     const hint = current.finishAt === null ? `Box Breathing · ${Array(4).fill(cfg.phaseSeconds).join("-")}` : cfg.labels.done;
     const { Box, Text } = $.ui.resolve(e);
 
-    // The one-line version: the phase, a bar that fills and empties with the breath, the seconds left.
+    // The one-line version: the phase, a bar that fills and empties with the breath, the seconds left
+    // (during the countdown: the number, over an empty bar).
     const columns = e.props.bodyColumns - 2; // the Box's paddingX
     const oneLine = () => (
       <Box paddingX={1}>
         <Text wrap="truncate-end">
-          <Text color={COLOR[frame.kind]} weight="semibold">
-            {label}
+          <Text color={shown.color} weight="semibold">
+            {shown.label}
           </Text>
           {"  "}
-          <Text color={COLOR[frame.kind]}>{bar(frame.fill, Math.max(4, Math.min(16, columns - label.length - 10)))}</Text>
-          <Text dimColor tabular>{`  ${frame.secondsLeft}`}</Text>
+          <Text color={shown.color}>{bar(shown.fill, Math.max(4, Math.min(16, columns - shown.label.length - 10)))}</Text>
+          <Text dimColor tabular>{`  ${shown.number}`}</Text>
           {columns >= 60 ? <Text dimColor>{`  ${hint}`}</Text> : null}
         </Text>
       </Box>
@@ -126,15 +134,19 @@ export const register: Register = (on, options) => {
       mine = oneLine();
     } else {
       const { Svg } = $.ui.resolve(e);
-      const draw = scene(frame.fill, elapsed / 1000);
+      const draw = scene(shown.fill, elapsed / 1000);
       mine = (
         <Box flexDirection="row" alignItems="center" columnGap={3} paddingX={1}>
-          <Svg source={svg(draw, ORB_PIXELS)} alt={`${label}, ${frame.secondsLeft}`} />
+          <Svg source={svg(draw, ORB_PIXELS)} alt={`${shown.label}, ${shown.number}`} />
           <Box flexDirection="column">
             <Text size="title" weight="semibold">
-              {label}
+              {shown.label}
             </Text>
-            <Text color={COLOR[frame.kind]} tabular>{`${frame.secondsLeft} s`}</Text>
+            {isCounting ? (
+              <Text color={shown.color} size="heading" weight="semibold" tabular>{`${shown.number}`}</Text>
+            ) : (
+              <Text color={shown.color} tabular>{`${shown.number} s`}</Text>
+            )}
             <Text dimColor size="footnote">
               {hint}
             </Text>
@@ -155,21 +167,22 @@ export const register: Register = (on, options) => {
   });
 };
 
-// A turn begins. A breath that is still winding down from the last one carries on.
+// A turn begins: the wait (if set), the countdown, then the first breath. A breath that is
+// still winding down from the last one carries on, with no countdown.
 async function begin($: EngineInterface, ticker: Ticker, cfg: Config) {
   if (await read($, isMuted)) return;
   const now = await $.clock.now();
   await update($, run, (current) =>
     current !== null && (current.finishAt === null || current.finishAt > now)
       ? { startedAt: current.startedAt, finishAt: null }
-      : { startedAt: now + cfg.delayMs, finishAt: null },
+      : { startedAt: now + cfg.delayMs + cfg.countdownMs, finishAt: null },
   );
   await update($, clock, () => now);
   startTicking($, ticker);
 }
 
 // A turn is over (answered, interrupted or failed alike). Let the breath in progress run on
-// to the end of its exhale; one that never came on screen is dropped.
+// to the end of its exhale; one that has not begun (still waiting or counting down) is dropped.
 async function finish($: EngineInterface, cfg: Config) {
   const now = await $.clock.now();
   await update($, run, (current) => {

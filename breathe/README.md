@@ -19,8 +19,9 @@ The orb follows a design made for this mod: an aurora ball (violet on top, then 
 | Breathe out (4 s) | shrinks, empties | `Ausatmen` |
 | Hold (4 s) | stays small, empty | `Halten` |
 
-It starts with a breath in when a turn begins and repeats for as long as Claude works. When the turn ends, however it ends (answered, interrupted, failed):
+When a turn begins there is a short countdown first: 3, 2, 1, 0, a second for each number (`Mach dich bereit` and the number; in Desktop the orb waits at rest). Then it starts with a breath in and repeats for as long as Claude works. When the turn ends, however it ends (answered, interrupted, failed):
 
+- during the countdown there is no breath to finish, so the band goes at once;
 - in a breath in, hold or breath out, the band runs on to the end of the exhale and then goes, and the hint says so;
 - in the hold after the exhale there is nothing left to finish, so it goes at once;
 - if you send the next prompt while it winds down, the breath carries on without starting over.
@@ -46,7 +47,8 @@ Fields in `/config` (or `pluginConfigs` in settings).
 | Field | Default | |
 | --- | --- | --- |
 | `phaseSeconds` | 4 | length of each of the four phases, 2 to 10 |
-| `startAfterSeconds` | 0 | wait this long into a turn before the band appears, so a quick answer does not start a whole breath; the first breath then starts when it appears, and a turn that ends before never shows it |
+| `countdownSeconds` | 3 | count down from this number to 0 before the first breath, a second for each number (3 shows 3, 2, 1, 0); 0 turns the countdown off, 0 to 10 |
+| `startAfterSeconds` | 0 | wait this long into a turn before the band (the countdown first) appears, so a quick answer shows nothing; a turn that ends before the first breath begins goes at once |
 | `language` | `de` | the words in the band, `de` or `en` |
 
 ## Limits

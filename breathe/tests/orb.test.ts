@@ -136,6 +136,11 @@ describe("the desktop's svg", () => {
     close(large, 50, 0.1);
   });
 
+  test("has no ground of its own, so the app's background shows through", () => {
+    const source = svg(scene(0.5, 0), 112);
+    expect(source).not.toMatch(/<rect|id="sky"/);
+  });
+
   test("draws only the orb's own circles, no stars", () => {
     // The halo, the body, four blobs, the core, and the clip path's copy of the body.
     expect(svg(scene(0.5, 0), 112).match(/<circle /g)).toHaveLength(8);

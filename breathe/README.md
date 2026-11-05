@@ -2,7 +2,7 @@
 
 A breathing exercise to look at while Claude works. An aurora orb above the prompt (terminal and Claude Desktop) expands as you breathe in, holds, contracts as you breathe out, and holds again: box breathing, 4 seconds each. When Claude is done the orb does not vanish. It finishes the breath you are in and goes at the end of the exhale.
 
-The orb follows a design made for this mod: an aurora ball (violet on top, then aqua, green and a clay fringe) with a halo and a bright core on a dark background. It grows and brightens on the inhale and shrinks and dims on the exhale, eased like a real breath.
+The orb follows a design made for this mod: an aurora ball (violet on top, then aqua, green and a clay fringe) with a halo and a bright core. In the terminal it sits on the design's dark background; in Claude Desktop it has none and the app's own background shows through. It grows and brightens on the inhale and shrinks and dims on the exhale, eased like a real breath.
 
 ## Install
 
@@ -30,7 +30,7 @@ Only the main conversation's turns count; a subagent working inside a turn does 
 ## Where it shows
 
 - **Terminal**: the orb is a grid of half-block cells, 6 rows tall (fewer where the band is short), with the phase, a progress bar and the seconds left beside it. With less than 4 rows or under about 50 columns it is one line: the phase and a bar that fills as you breathe in and empties as you breathe out.
-- **Claude Desktop**: the orb is an SVG card redrawn about ten times a second, with the phase in large type beside it. On a very narrow band it is the one line of text.
+- **Claude Desktop**: the orb is an SVG without a background, redrawn about ten times a second, with the phase in large type beside it. On a very narrow band it is the one line of text.
 
 Another mod's band above the prompt (the token forecast, a heads-up) is kept and drawn under the orb. A mod above this one in the chain that draws its own band without passing the rest on still hides it, as mods already do to each other.
 

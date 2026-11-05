@@ -1,6 +1,7 @@
-// The orb from the design (an aurora ball on a dark background), drawn two ways from one
-// description of the scene: as a grid of half-block cells for the terminal, and as an
-// SVG for Claude Desktop. Pure, so it is tested and can be rendered to a picture.
+// The orb from the design (an aurora ball with a halo), drawn two ways from one description
+// of the scene: as a grid of half-block cells for the terminal, which gets the design's dark
+// ground (a cell cannot be transparent), and as an SVG for Claude Desktop, which gets none.
+// Pure, so it is tested and can be rendered to a picture.
 //
 // Everything is measured in units of the orb's largest radius, with the origin at its
 // centre and y pointing down. The sizes and opacities follow the design's keyframes:
@@ -20,6 +21,7 @@ const SAND = rgb("#E3DACC");
 
 // [position, colour, opacity]: a CSS gradient's stops.
 type Stop = readonly [number, Rgb, number];
+// The terminal's ground: a cell cannot be see-through, and the orb is made for a dark one.
 const SKY: Stop[] = [[0, rgb("#30302E"), 1], [0.4, rgb("#1F1E1D"), 1], [0.75, rgb("#141413"), 1]];
 const HALO: Stop[] = [[0, GREEN, 0.3], [0.38, AQUA, 0.2], [0.58, VIOLET, 0.1], [0.74, VIOLET, 0]];
 // Violet on top, then aqua, green, and a fringe of clay at the bottom.
@@ -134,7 +136,6 @@ const SCALE = SIZE / (2 * EXTENT);
 // Gradients that never change, so a frame only moves circles. Opacity of a layer is the
 // circle's own; a gradient's alphas are the design's.
 const DEFS = [
-  `<radialGradient id="sky" cx="0.5" cy="0.42" r="0.766">${stops(SKY)}</radialGradient>`,
   `<radialGradient id="halo">${stops(HALO)}</radialGradient>`,
   `<linearGradient id="body" x1="0" y1="0" x2="0" y2="1">${stops(BODY)}</linearGradient>`,
   `<radialGradient id="core">${stops(CORE)}</radialGradient>`,
@@ -142,7 +143,8 @@ const DEFS = [
   `<filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>`,
 ].join("");
 
-// A square card with the orb in it. `shown` is its size on screen, in pixels.
+// The orb on no ground at all: the picture is transparent, so the app's own background shows
+// through (the halo is a faint glow on any theme). `shown` is its size on screen, in pixels.
 export function svg(s: Scene, shown: number): string {
   const at = (n: number) => +(MID + n * SCALE).toFixed(1);
   const len = (n: number) => +(n * SCALE).toFixed(1);
@@ -153,7 +155,6 @@ export function svg(s: Scene, shown: number): string {
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${shown}" height="${shown}">`,
     `<defs>${DEFS}<clipPath id="orb">${circle(0, 0, s.body.r, "")}</clipPath></defs>`,
-    `<rect width="${SIZE}" height="${SIZE}" rx="22" fill="url(#sky)"/>`,
     circle(0, 0, s.halo.r, `fill="url(#halo)" opacity="${+s.halo.opacity.toFixed(2)}"`),
     `<g filter="url(#soft)" opacity="${+s.body.opacity.toFixed(2)}">`,
     circle(0, 0, s.body.r, `fill="url(#body)"`),

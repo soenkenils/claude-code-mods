@@ -13,7 +13,7 @@ A collection of Claude Code **mods**: plugins whose behaviour is a TypeScript *h
 
 There is no `package.json`, no node_modules and no build step. The engine loads the `.ts`/`.tsx` sources directly.
 
-`.claude-plugin/marketplace.json` at the repo root lists the three mods (`source` is the mod folder), so `/plugin install <mod> --marketplace soenkenils/claude-code-mods` works. Its `description` fields copy each `plugin.json`; update both when one changes, and add an entry when you add a mod. `claude plugin validate .` checks it.
+`.claude-plugin/marketplace.json` at the repo root lists the mods (`source` is the mod folder), so `/plugin install <mod> --marketplace soenkenils/claude-code-mods` works. Its `description` fields copy each `plugin.json`; update both when one changes, and add an entry when you add a mod. `claude plugin validate .` checks it.
 
 ## Commands
 

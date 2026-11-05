@@ -4,6 +4,12 @@ A breathing exercise to look at while Claude works. An aurora orb above the prom
 
 The orb follows a design made for this mod: an aurora ball (violet on top, then aqua, green and a clay fringe) with a halo and a bright core on a dark night sky. It grows and brightens on the inhale and shrinks and dims on the exhale, eased like a real breath.
 
+## Install
+
+```
+/plugin install breathe --marketplace soenkenils/claude-code-mods
+```
+
 ## How a breath runs
 
 | Phase | What the orb does | What the label says |

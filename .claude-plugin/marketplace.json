@@ -1,6 +1,8 @@
 {
   "name": "claude-code-mods",
-  "owner": { "name": "Sönke" },
+  "owner": {
+    "name": "Sönke"
+  },
   "metadata": {
     "description": "Mods for Claude Code: plugins that draw bands and panes in the terminal and Claude Desktop."
   },
@@ -19,6 +21,11 @@
       "name": "heads-up",
       "source": "./heads-up",
       "description": "Watches the running session and shows a heads-up when something is off: failing tools or tests in a row, edits outside the project, a context spike, or a run that stalls."
+    },
+    {
+      "name": "breathe",
+      "source": "./breathe",
+      "description": "A breathing animation while Claude works: an aurora orb that expands and contracts in box breathing time, above the prompt in the terminal and in Claude Desktop. When the turn ends it finishes the breath you are in."
     }
   ]
 }

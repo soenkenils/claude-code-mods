@@ -1,22 +1,9 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { EXTENT, cells, pixels, scene, svg } from "../hooks/orb";
-
-const SIZE = 16;
+import { scene, svg } from "../hooks/orb";
 
 // The kit has no toBeCloseTo.
 const close = (actual: number | undefined, expected: number, within = 1e-6) => expect(Math.abs((actual ?? NaN) - expected)).toBeLessThan(within);
-
-function decode(base64: string) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new DataView(bytes.buffer);
-}
-
-const channels = (color: number) => [(color >> 16) & 255, (color >> 8) & 255, color & 255] as const;
-const brightness = (color: number) => channels(color).reduce((sum, c) => sum + c, 0);
-const at = (grid: number[], x: number, y: number) => grid[y * SIZE + x] ?? -1;
 
 describe("the scene", () => {
   test("the orb grows and brightens as the lungs fill", () => {
@@ -34,74 +21,6 @@ describe("the scene", () => {
     const a = scene(0.5, 0);
     const b = scene(0.5, 7);
     expect(Math.abs((b.blobs[0]?.x ?? 0) - (a.blobs[0]?.x ?? 0))).toBeGreaterThan(0.01);
-  });
-});
-
-describe("the terminal's pixels", () => {
-  test("are one colour for each", () => {
-    const grid = pixels(scene(0.5, 0), SIZE, SIZE);
-    expect(grid).toHaveLength(SIZE * SIZE);
-    for (const color of grid) {
-      expect(color).toBeGreaterThanOrEqual(0);
-      expect(color).toBeLessThanOrEqual(0xffffff);
-    }
-  });
-
-  test("are dark at the edge and bright where the orb is", () => {
-    const grid = pixels(scene(1, 0), SIZE, SIZE);
-    expect(brightness(at(grid, 0, 0))).toBeLessThan(150);
-    expect(brightness(at(grid, 8, 8))).toBeGreaterThan(brightness(at(grid, 0, 0)) + 200);
-  });
-
-  test("cover more of the picture with a full orb than an empty one", () => {
-    const lit = (fill: number) => {
-      const grid = pixels(scene(fill, 0), SIZE, SIZE);
-      const sky = pixels({ ...scene(fill, 0), halo: { r: 0.001, opacity: 0 }, body: { r: 0.001, opacity: 0 }, core: { r: 0.001 }, blobs: [] }, SIZE, SIZE);
-      return grid.filter((color, i) => brightness(color) > brightness(sky[i] ?? 0) + 60).length;
-    };
-    expect(lit(1)).toBeGreaterThan(lit(0) * 2);
-  });
-
-  test("show only the backdrop outside the orb's glow, at any moment: no stars", () => {
-    const unit = SIZE / (2 * EXTENT);
-    const backdrop = pixels({ ...scene(0, 0), halo: { r: 0.001, opacity: 0 }, body: { r: 0.001, opacity: 0 }, core: { r: 0.001 }, blobs: [] }, SIZE, SIZE);
-    for (const seconds of [0, 2.5, 7.1]) {
-      const grid = pixels(scene(0, seconds), SIZE, SIZE);
-      for (let y = 0; y < SIZE; y++) {
-        for (let x = 0; x < SIZE; x++) {
-          // The empty orb's glow ends at .72 of its largest radius.
-          if (Math.hypot((x + 0.5 - SIZE / 2) / unit, (y + 0.5 - SIZE / 2) / unit) > 0.8) expect(at(grid, x, y)).toBe(at(backdrop, x, y));
-        }
-      }
-    }
-  });
-
-  test("are the same for the same moment", () => {
-    expect(pixels(scene(0.3, 4.2), SIZE, SIZE)).toEqual(pixels(scene(0.3, 4.2), SIZE, SIZE));
-  });
-});
-
-describe("the terminal's cells", () => {
-  test("are one upper half block each, with the pixel above in front and the pixel below behind", () => {
-    const grid = pixels(scene(0.6, 1), SIZE, SIZE);
-    const columns = SIZE;
-    const rows = SIZE / 2;
-    const view = decode(cells(grid, columns, rows));
-    expect(view.byteLength).toBe(columns * rows * 12);
-    for (const [row, col] of [[0, 0], [3, 5], [7, 15]] as const) {
-      const at = (row * columns + col) * 12;
-      expect(view.getUint32(at, true)).toBe(0x2580);
-      expect(view.getUint32(at + 4, true)).toBe(grid[2 * row * columns + col]);
-      expect(view.getUint32(at + 8, true)).toBe(grid[(2 * row + 1) * columns + col]);
-    }
-  });
-
-  test("stay within the colours a terminal's raster paints at once", () => {
-    const grid = pixels(scene(1, 0), SIZE, SIZE);
-    const view = decode(cells(grid, SIZE, SIZE / 2));
-    const pairs = new Set<string>();
-    for (let at = 0; at < view.byteLength; at += 12) pairs.add(`${view.getUint32(at + 4, true)}:${view.getUint32(at + 8, true)}`);
-    expect(pairs.size).toBeLessThanOrEqual(1024);
   });
 });
 

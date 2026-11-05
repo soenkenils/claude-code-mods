@@ -1,7 +1,7 @@
 {
   "name": "breathe",
   "version": "0.1.2",
-  "description": "A breathing animation while Claude works: an aurora orb that expands and contracts in box breathing time, above the prompt in the terminal and in Claude Desktop. When the turn ends it finishes the breath you are in.",
+  "description": "A breathing guide while Claude works: box breathing as words and a bar above the prompt in the terminal, and an aurora orb that expands and contracts in Claude Desktop. When the turn ends it finishes the breath you are in.",
   "author": { "name": "Sönke" },
   "types": "./types/index.d.ts",
   "userConfig": {

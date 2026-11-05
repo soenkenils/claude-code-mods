@@ -1,24 +1,22 @@
 // Breathe: a breathing exercise to look at while Claude works.
 //
-// While a turn runs, an aurora orb above the prompt expands and contracts in box breathing
-// time (in, hold, out, hold). When the turn ends the animation does not vanish: it finishes
-// the breath it is in and goes at the end of the exhale.
+// While a turn runs, a band above the prompt breathes in box breathing time (in, hold, out,
+// hold). When the turn ends it does not vanish: it finishes the breath it is in and goes at
+// the end of the exhale.
 //
-// One module, two drawings. The terminal gets a grid of half-block cells (a `Raster`);
-// Claude Desktop gets an SVG, redrawn for every frame. Where the terminal has no room for
-// the orb it gets one line: a bar that fills and empties with the breath.
+// One module, two drawings. Claude Desktop gets an aurora orb that expands and contracts, an
+// SVG redrawn for every frame. The terminal gets one line: the phase in words and a bar that
+// fills and empties with the breath.
 
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, PluginOptions, Register, Timer } from "claude-code";
 
-import { cells, pixels, scene, svg } from "./orb";
+import { scene, svg } from "./orb";
 import { box, frameAt, restAt } from "./pacer";
 import type { Kind } from "./pacer";
 
 const COMMAND = "breathe";
 const FRAME_MS = 100;
-const ORB_ROWS = 6; // The terminal's orb is this many rows tall, or fewer where the band is short.
-const MIN_ORB_ROWS = 4;
 const ORB_PIXELS = 112; // The desktop's orb, in CSS pixels.
 
 // Held by the host, so a reload of this file does not lose the breath in progress.
@@ -102,7 +100,6 @@ export const register: Register = (on, options) => {
     if (elapsed < 0 || isOver) return next(e);
 
     const frame = frameAt(cfg.pattern, elapsed);
-    const draw = scene(frame.fill, elapsed / 1000);
     const label = cfg.labels[frame.kind];
     const hint = current.finishAt === null ? `Box Breathing · ${Array(4).fill(cfg.phaseSeconds).join("-")}` : cfg.labels.done;
     const { Box, Text } = $.ui.resolve(e);
@@ -124,32 +121,12 @@ export const register: Register = (on, options) => {
     );
 
     let mine: JSX.Element;
-    if (e.surface === "terminal") {
-      const rows = Math.min(ORB_ROWS, e.props.maxRows);
-      if (rows < MIN_ORB_ROWS || e.props.bodyColumns < rows * 2 + 34) {
-        mine = oneLine();
-      } else {
-        const { Raster } = $.ui.resolve(e);
-        const width = rows * 2;
-        mine = (
-          <Box flexDirection="row" alignItems="center" columnGap={2} paddingX={1}>
-            <Raster key="orb" columns={width} rows={rows} cells={cells(pixels(draw, width, rows * 2), width, rows)} />
-            <Box flexDirection="column">
-              <Text color={COLOR[frame.kind]} weight="semibold">
-                {label}
-                <Text dimColor tabular>{`  ${frame.secondsLeft}`}</Text>
-              </Text>
-              <Text color={COLOR[frame.kind]}>{bar(frame.progress, 14)}</Text>
-              <Text dimColor>{hint}</Text>
-            </Box>
-          </Box>
-        );
-      }
-    } else if (e.props.bodyColumns < 36) {
-      // Too narrow for the picture: say it in words.
+    if (e.surface === "terminal" || e.props.bodyColumns < 36) {
+      // The terminal gets words and a bar; so does a desktop band too narrow for the picture.
       mine = oneLine();
     } else {
       const { Svg } = $.ui.resolve(e);
+      const draw = scene(frame.fill, elapsed / 1000);
       mine = (
         <Box flexDirection="row" alignItems="center" columnGap={3} paddingX={1}>
           <Svg source={svg(draw, ORB_PIXELS)} alt={`${label}, ${frame.secondsLeft}`} />

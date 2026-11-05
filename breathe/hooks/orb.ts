@@ -1,7 +1,7 @@
-// The orb from the design (an aurora ball with a halo), drawn two ways from one description
-// of the scene: as a grid of half-block cells for the terminal, which gets the design's dark
-// ground (a cell cannot be transparent), and as an SVG for Claude Desktop, which gets none.
-// Pure, so it is tested and can be rendered to a picture.
+// The orb from the design (an aurora ball with a halo), drawn as an SVG for Claude Desktop
+// from a description of the scene. It has no ground of its own, so the app's background shows
+// through. Pure, so it is tested and can be rendered to a picture. (The terminal has no orb:
+// it gets words and a bar, in breathe.tsx.)
 //
 // Everything is measured in units of the orb's largest radius, with the origin at its
 // centre and y pointing down. The sizes and opacities follow the design's keyframes:
@@ -21,8 +21,6 @@ const SAND = rgb("#E3DACC");
 
 // [position, colour, opacity]: a CSS gradient's stops.
 type Stop = readonly [number, Rgb, number];
-// The terminal's ground: a cell cannot be see-through, and the orb is made for a dark one.
-const SKY: Stop[] = [[0, rgb("#30302E"), 1], [0.4, rgb("#1F1E1D"), 1], [0.75, rgb("#141413"), 1]];
 const HALO: Stop[] = [[0, GREEN, 0.3], [0.38, AQUA, 0.2], [0.58, VIOLET, 0.1], [0.74, VIOLET, 0]];
 // Violet on top, then aqua, green, and a fringe of clay at the bottom.
 const BODY: Stop[] = [[0, VIOLET, 0.9], [0.36, AQUA, 0.92], [0.64, GREEN, 0.95], [1, CLAY, 0.88]];
@@ -40,7 +38,6 @@ const BLOBS = [
 // A blob is brightest in the middle and gone at its edge.
 const BLOB_RAMPS: Stop[][] = BLOBS.map((b) => [[0, b.color, b.opacity], [0.55, b.color, b.opacity * 0.45], [1, b.color, 0]]);
 
-const SOFT = 0.13; // How far the body's edge fades, as the design's blur does.
 const HALO_SIZE = 230 / 130;
 const CORE_SIZE = 75 / 130;
 const TAU = Math.PI * 2;
@@ -66,65 +63,6 @@ export function scene(fill: number, seconds: number): Scene {
       return { x: bodyR * b.orbit * Math.cos(angle), y: bodyR * b.orbit * Math.sin(angle), r: bodyR * b.size };
     }),
   };
-}
-
-// ---- Terminal -------------------------------------------------------------------------
-
-// One colour per pixel as 0xRRGGBB, `width` by `height`, row by row. The scene is fitted to
-// the smaller side, and a pixel is taken to be square.
-export function pixels(s: Scene, width: number, height: number): number[] {
-  const unit = Math.min(width, height) / (2 * EXTENT);
-  const sky = Math.hypot(width * 0.5, height * 0.58);
-  const out: number[] = [];
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const ux = (x + 0.5 - width / 2) / unit;
-      const uy = (y + 0.5 - height / 2) / unit;
-      const dist = Math.hypot(ux, uy);
-
-      let [r, g, b] = ramp(SKY, Math.hypot(x + 0.5 - width / 2, y + 0.5 - height * 0.42) / sky).color;
-
-      const halo = ramp(HALO, dist / s.halo.r);
-      [r, g, b] = over([r, g, b], halo.color, halo.opacity * s.halo.opacity);
-
-      const coverage = clamp((s.body.r - dist) / SOFT + 0.5);
-      if (coverage > 0) {
-        const down = clamp((uy + s.body.r) / (2 * s.body.r));
-        const body = ramp(BODY, down);
-        let color = body.color;
-        for (const [i, blob] of s.blobs.entries()) {
-          const lamp = ramp(BLOB_RAMPS[i]!, Math.hypot(ux - blob.x, uy - blob.y) / blob.r);
-          color = screen(color, lamp.color, lamp.opacity);
-        }
-        [r, g, b] = over([r, g, b], color, body.opacity * coverage * s.body.opacity);
-      }
-
-      const core = ramp(CORE, dist / s.core.r);
-      [r, g, b] = over([r, g, b], core.color, core.opacity);
-      out.push(pack([r, g, b]));
-    }
-  }
-  return out;
-}
-
-// The grid for a terminal `Raster`: each cell is an upper half block whose foreground is the
-// pixel above and background the pixel below, so a cell holds two square pixels. `pixels` is
-// `columns` wide and `2 * rows` tall.
-export function cells(pixels: number[], columns: number, rows: number): string {
-  const bytes = new Uint8Array(columns * rows * 12);
-  const view = new DataView(bytes.buffer);
-  let at = 0;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < columns; col++) {
-      view.setUint32(at, 0x2580, true);
-      view.setUint32(at + 4, pixels[2 * row * columns + col] ?? 0, true);
-      view.setUint32(at + 8, pixels[(2 * row + 1) * columns + col] ?? 0, true);
-      at += 12;
-    }
-  }
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
 }
 
 // ---- Desktop --------------------------------------------------------------------------
@@ -180,49 +118,7 @@ function stops(list: Stop[]) {
   return list.map(([at, c, o]) => `<stop offset="${at}" stop-color="${hex(c)}" stop-opacity="${o}"/>`).join("");
 }
 
-function clamp(n: number) {
-  return Math.min(1, Math.max(0, n));
-}
-
 function pack([r, g, b]: Rgb) {
   const byte = (n: number) => Math.min(255, Math.max(0, Math.round(n)));
   return (byte(r) << 16) | (byte(g) << 8) | byte(b);
-}
-
-// The colour and opacity of a gradient at `at`; before the first stop and past the last
-// it holds the end stop's.
-function ramp(list: Stop[], at: number): { color: Rgb; opacity: number } {
-  const first = list[0]!;
-  const last = list[list.length - 1]!;
-  if (at <= first[0]) return { color: first[1], opacity: first[2] };
-  if (at >= last[0]) return { color: last[1], opacity: last[2] };
-  for (let i = 1; i < list.length; i++) {
-    const [to, toColor, toOpacity] = list[i]!;
-    const [from, fromColor, fromOpacity] = list[i - 1]!;
-    if (at <= to) {
-      const t = (at - from) / (to - from);
-      return {
-        color: [
-          fromColor[0] + (toColor[0] - fromColor[0]) * t,
-          fromColor[1] + (toColor[1] - fromColor[1]) * t,
-          fromColor[2] + (toColor[2] - fromColor[2]) * t,
-        ],
-        opacity: fromOpacity + (toOpacity - fromOpacity) * t,
-      };
-    }
-  }
-  return { color: last[1], opacity: last[2] };
-}
-
-// `top` laid over `under` at `opacity`.
-function over(under: Rgb, top: Rgb, opacity: number): Rgb {
-  const a = clamp(opacity);
-  return [under[0] + (top[0] - under[0]) * a, under[1] + (top[1] - under[1]) * a, under[2] + (top[2] - under[2]) * a];
-}
-
-// Screen blending: light colours add up without ever passing white.
-function screen(under: Rgb, top: Rgb, opacity: number): Rgb {
-  const a = clamp(opacity);
-  const one = (u: number, t: number) => 255 - ((255 - u) * (255 - t * a)) / 255;
-  return [one(under[0], top[0]), one(under[1], top[1]), one(under[2], top[2])];
 }

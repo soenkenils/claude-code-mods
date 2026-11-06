@@ -30,13 +30,14 @@ Only the main conversation's turns count; a subagent working inside a turn does 
 
 ## Where it shows
 
-- **Terminal**: one line: the phase (`Einatmen`, `Halten`, `Ausatmen`) in the phase's theme color, a bar that fills as you breathe in and empties as you breathe out, the seconds left, and on a wide terminal the hint (`Box Breathing · 4-4-4-4`). There is no orb in the terminal.
-- **Claude Desktop**: the orb is an SVG without a background, redrawn about ten times a second, with the phase in large type beside it. On a very narrow band it is the same one line as in the terminal.
+- **Terminal**: one line: the phase (`Einatmen`, `Halten`, `Ausatmen`) in the phase's theme color, a bar that fills as you breathe in and empties as you breathe out, the seconds left, and on a wide terminal the hint (`Box Breathing · 4-4-4-4`), then the Hide button. There is no orb in the terminal.
+- **Claude Desktop**: the orb is an SVG without a background, redrawn about ten times a second, with the phase in large type beside it and the Hide button at the right. On a very narrow band it is the same one line as in the terminal.
 
 Another mod's band above the prompt (the token forecast, a heads-up) is kept and drawn under the orb. A mod above this one in the chain that draws its own band without passing the rest on still hides it, as mods already do to each other.
 
 ## Use
 
+- The **Ausblenden** button (`Hide` in English) at the right of the band takes it away for the rest of the turn, for when you do not want to breathe along just now. Click it; in a terminal that does not pass clicks on, focus the band with ctrl+x tab and press Enter. The next turn brings the band back.
 - `/breathe` says whether it is on. `/breathe off` mutes it for the session, `/breathe on` brings it back with the next turn.
 - The band's own collapse (`[-]`, ctrl+x ctrl+a) hides it for the moment.
 

@@ -498,6 +498,107 @@ describe("the countdown on the desktop", () => {
   });
 });
 
+for (const surface of SURFACES) {
+  describe(`the Hide button on ${surface}`, () => {
+    const hide = (ui: Awaited<ReturnType<typeof band>>) => ui.find({ type: "Button", key: "hide" });
+
+    test("is on the band while it breathes, and in the countdown", async ($, on) => {
+      core(on);
+      await start($);
+      await beginTurn($);
+      const ui = await band($, surface);
+      expect((await hide(ui))?.props.label).toBe("Ausblenden");
+      await ui.unmount();
+    });
+
+    test("says Hide in English", noCountdown({ language: "en" }), async ($, on) => {
+      core(on);
+      await start($);
+      await beginTurn($);
+      const ui = await band($, surface);
+      expect((await hide(ui))?.props.label).toBe("Hide");
+      await ui.unmount();
+    });
+
+    test("takes the band away for the rest of the turn", noCountdown(), async ($, on) => {
+      const clock = core(on);
+      await start($);
+      await beginTurn($);
+      const ui = await band($, surface);
+      expect(await words($, surface)).toContain(DE.in);
+      await ui.press({ key: "hide" });
+      await isEngine(ui);
+      await clock.advance(10_000);
+      await isEngine(ui);
+      await endTurn($);
+      await clock.advance(20_000);
+      await isEngine(ui);
+      await ui.unmount();
+    });
+
+    test("works in the countdown", async ($, on) => {
+      const clock = core(on);
+      await start($);
+      await beginTurn($);
+      await clock.advance(1000);
+      const ui = await band($, surface);
+      expect(await words($, surface)).toContain(READY.de);
+      await ui.press({ key: "hide" });
+      await isEngine(ui);
+      await clock.advance(6000);
+      await isEngine(ui);
+      await ui.unmount();
+    });
+
+    test("works while the breath winds down after the turn", noCountdown(), async ($, on) => {
+      const clock = core(on);
+      await start($);
+      await beginTurn($);
+      await clock.advance(2000);
+      await endTurn($);
+      const ui = await band($, surface);
+      expect(await words($, surface)).toContain("Claude ist fertig");
+      await ui.press({ key: "hide" });
+      await isEngine(ui);
+      await ui.unmount();
+    });
+
+    test("is only for this turn: the next one brings the band back", noCountdown(), async ($, on) => {
+      const clock = core(on);
+      await start($);
+      await beginTurn($);
+      const ui = await band($, surface);
+      await ui.press({ key: "hide" });
+      await ui.unmount();
+      await endTurn($);
+      await clock.advance(1000);
+      await beginTurn($);
+      expect(await words($, surface)).toContain(DE.in);
+    });
+
+    test("does not mute it: /breathe still says it is on", noCountdown(), async ($, on) => {
+      core(on);
+      await start($);
+      await beginTurn($);
+      const ui = await band($, surface);
+      await ui.press({ key: "hide" });
+      await ui.unmount();
+      expect((await slash($)).text).toBe("Breathe is on.");
+    });
+
+    test("leaves another mod's band where it is", noCountdown(), async ($, on) => {
+      core(on, ($, e) => $.ui.resolve(e).Text({ children: "forecast band" }));
+      await start($);
+      await beginTurn($);
+      const ui = await band($, surface);
+      await ui.press({ key: "hide" });
+      expect(JSON.stringify(await ui.drawn())).toContain("forecast band");
+      expect(await hide(ui)).toBeUndefined();
+      await ui.unmount();
+    });
+  });
+}
+
 describe("on the terminal", () => {
   test("draws words and a bar, and no picture", noCountdown(), async ($, on) => {
     core(on);

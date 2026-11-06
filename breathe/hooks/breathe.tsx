@@ -3,7 +3,8 @@
 // While a turn runs, a band above the prompt breathes in box breathing time (in, hold, out,
 // hold), after a short countdown (3, 2, 1, 0). When the turn ends it does not vanish: it
 // finishes the breath it is in and goes at the end of the exhale. A turn that ends during the
-// countdown has no breath to finish, so the band goes at once.
+// countdown has no breath to finish, so the band goes at once. A Hide button takes the band
+// away for the rest of the turn, for when you do not want to breathe along just now.
 //
 // One module, two drawings. Claude Desktop gets an aurora orb that expands and contracts, an
 // SVG redrawn for every frame. The terminal gets one line: the phase in words and a bar that
@@ -27,8 +28,8 @@ const isMuted = atom({ plugin: "breathe", key: "isMuted" } as const, false);
 
 // The words next to the animation. The design is in German.
 const LABELS = {
-  de: { ready: "Mach dich bereit", in: "Einatmen", holdIn: "Halten", out: "Ausatmen", holdOut: "Halten", done: "Claude ist fertig · atme zu Ende aus" },
-  en: { ready: "Get ready", in: "Breathe in", holdIn: "Hold", out: "Breathe out", holdOut: "Hold", done: "Claude is done · finish your exhale" },
+  de: { hide: "Ausblenden", ready: "Mach dich bereit", in: "Einatmen", holdIn: "Halten", out: "Ausatmen", holdOut: "Halten", done: "Claude ist fertig · atme zu Ende aus" },
+  en: { hide: "Hide", ready: "Get ready", in: "Breathe in", holdIn: "Hold", out: "Breathe out", holdOut: "Hold", done: "Claude is done · finish your exhale" },
 } as const;
 
 // Theme keys, so the text follows the person's theme: green in, clay out, blue for the holds.
@@ -109,22 +110,26 @@ export const register: Register = (on, options) => {
       ? { label: cfg.labels.ready, color: READY_COLOR, fill: 0, number: countdownAt(-elapsed) }
       : { label: cfg.labels[frame.kind], color: COLOR[frame.kind], fill: frame.fill, number: frame.secondsLeft };
     const hint = current.finishAt === null ? `Box Breathing · ${Array(4).fill(cfg.phaseSeconds).join("-")}` : cfg.labels.done;
-    const { Box, Text } = $.ui.resolve(e);
+    const { Box, Text, Button } = $.ui.resolve(e);
+    const hideButton = <Button key="hide" label={cfg.labels.hide} plain dimColor onPress={() => dismiss($)} />;
 
     // The one-line version: the phase, a bar that fills and empties with the breath, the seconds left
     // (during the countdown: the number, over an empty bar).
-    const columns = e.props.bodyColumns - 2; // the Box's paddingX
+    const columns = e.props.bodyColumns - 2 - cfg.labels.hide.length - 1; // the Box's paddingX, the button and its gap
     const oneLine = () => (
-      <Box paddingX={1}>
-        <Text wrap="truncate-end">
-          <Text color={shown.color} weight="semibold">
-            {shown.label}
+      <Box flexDirection="row" gap={1} paddingX={1}>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text wrap="truncate-end">
+            <Text color={shown.color} weight="semibold">
+              {shown.label}
+            </Text>
+            {"  "}
+            <Text color={shown.color}>{bar(shown.fill, Math.max(4, Math.min(16, columns - shown.label.length - 10)))}</Text>
+            <Text dimColor tabular>{`  ${shown.number}`}</Text>
+            {columns >= 56 ? <Text dimColor>{`  ${hint}`}</Text> : null}
           </Text>
-          {"  "}
-          <Text color={shown.color}>{bar(shown.fill, Math.max(4, Math.min(16, columns - shown.label.length - 10)))}</Text>
-          <Text dimColor tabular>{`  ${shown.number}`}</Text>
-          {columns >= 60 ? <Text dimColor>{`  ${hint}`}</Text> : null}
-        </Text>
+        </Box>
+        {hideButton}
       </Box>
     );
 
@@ -138,7 +143,7 @@ export const register: Register = (on, options) => {
       mine = (
         <Box flexDirection="row" alignItems="center" columnGap={3} paddingX={1}>
           <Svg source={svg(draw, ORB_PIXELS)} alt={`${shown.label}, ${shown.number}`} />
-          <Box flexDirection="column">
+          <Box flexDirection="column" flexGrow={1}>
             <Text size="title" weight="semibold">
               {shown.label}
             </Text>
@@ -151,6 +156,7 @@ export const register: Register = (on, options) => {
               {hint}
             </Text>
           </Box>
+          {hideButton}
         </Box>
       );
     }
@@ -166,6 +172,12 @@ export const register: Register = (on, options) => {
     );
   });
 };
+
+// The Hide button: the breath is dropped, so the band goes and the timer stops with the next
+// tick. The next turn begins a new one; /breathe off is for good.
+async function dismiss($: EngineInterface) {
+  await update($, run, () => null);
+}
 
 // A turn begins: the wait (if set), the countdown, then the first breath. A breath that is
 // still winding down from the last one carries on, with no countdown.

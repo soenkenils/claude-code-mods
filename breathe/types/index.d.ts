@@ -7,8 +7,6 @@ declare module "claude-code" {
     breathe: {
       // What is being shown, or null: nothing to draw.
       run: Shaped<BreatheRun | null>;
-      // The last frame's time. Writing it is what redraws the band.
-      now: number;
       isMuted: boolean;
     };
   }

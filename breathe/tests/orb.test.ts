@@ -1,6 +1,7 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { scene, svg } from "../hooks/orb";
+import { breathingSvg, scene } from "../hooks/orb";
+import { box, patternOf } from "../hooks/pacer";
 
 // The kit has no toBeCloseTo.
 const close = (actual: number | undefined, expected: number, within = 1e-6) => expect(Math.abs((actual ?? NaN) - expected)).toBeLessThan(within);
@@ -25,10 +26,14 @@ describe("the scene", () => {
 });
 
 describe("the desktop's svg", () => {
-  const body = (source: string) => Number(/<circle [^>]*r="([\d.]+)" fill="url\(#body\)"/.exec(source)?.[1]);
+  const source = breathingSvg(box(4), 0, 112);
+  // The body's resting radius and the radii it breathes through.
+  const body = (svg: string) => {
+    const m = /<circle [^>]*r="([\d.]+)" fill="url\(#body\)"><animate attributeName="r" values="([^"]+)"/.exec(svg);
+    return { rest: Number(m?.[1]), values: (m?.[2] ?? "").split(";").map(Number) };
+  };
 
   test("is a sized svg document", () => {
-    const source = svg(scene(0.5, 3), 112);
     expect(source.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
     expect(source.endsWith("</svg>")).toBe(true);
     expect(source).toContain('width="112" height="112"');
@@ -36,32 +41,54 @@ describe("the desktop's svg", () => {
   });
 
   test("draws no script and nothing it links to", () => {
-    const source = svg(scene(0.5, 3), 112);
-    expect(source).not.toMatch(/<script|<image|href=|onload=/i);
+    expect(source).not.toMatch(/<script|<image|href=|onload=|onbegin=|onend=/i);
   });
 
   test("uses every gradient it defines, and defines every gradient it uses", () => {
-    const source = svg(scene(0.5, 3), 112);
     const defined = [...source.matchAll(/<(?:radial|linear)Gradient id="(\w+)"/g)].map((m) => m[1]);
     const used = [...source.matchAll(/url\(#(\w+)\)/g)].map((m) => m[1]);
     expect(defined.sort()).toEqual([...new Set(used)].filter((id) => defined.includes(id)).sort());
     for (const id of used) expect([...defined, "soft", "orb"]).toContain(id);
   });
 
-  test("grows the orb as the lungs fill", () => {
-    const small = body(svg(scene(0, 0), 112));
-    const large = body(svg(scene(1, 0), 112));
-    close(small, 0.4 * 50, 0.1);
-    close(large, 50, 0.1);
+  test("rests small and grows the orb as the lungs fill", () => {
+    const { rest, values } = body(source);
+    close(rest, 0.4 * 50, 0.01);
+    // Box breathing: empty, full after breathing in, full after the hold, empty, empty.
+    expect(values).toEqual([20, 50, 50, 20, 20]);
+  });
+
+  test("keeps step with the pattern: a key time at the end of each phase", () => {
+    expect(source).toContain('keyTimes="0;0.25;0.5;0.75;1"');
+    expect(source).toContain('dur="16s"');
+    const calm = breathingSvg(patternOf("calm", 4), 0, 112);
+    expect(calm).toContain('keyTimes="0;0.4;1"');
+    expect(calm).toContain('dur="10s"');
+    expect(body(calm).values).toEqual([20, 50, 20]);
+  });
+
+  test("gives every animation as many values as key times, and a spline between each", () => {
+    for (const svg of [source, breathingSvg(patternOf("even", 3), 0, 112), breathingSvg(patternOf("calm", 5), 0, 112)]) {
+      const found = [...svg.matchAll(/values="([^"]+)" keyTimes="([^"]+)" calcMode="spline" keySplines="([^"]+)"/g)];
+      expect(found.length).toBeGreaterThan(0);
+      for (const [, values, times, splines] of found) {
+        expect((values ?? "").split(";").length).toBe((times ?? "").split(";").length);
+        expect((splines ?? "").split(";").length).toBe((times ?? "").split(";").length - 1);
+      }
+    }
+  });
+
+  test("starts the breath where it is when first drawn, and waits through a countdown", () => {
+    expect(breathingSvg(box(4), 5000, 112)).toContain('begin="-5s"');
+    expect(breathingSvg(box(4), -4000, 112)).toContain('begin="4s"');
   });
 
   test("has no ground of its own, so the app's background shows through", () => {
-    const source = svg(scene(0.5, 0), 112);
     expect(source).not.toMatch(/<rect|id="sky"/);
   });
 
   test("draws only the orb's own circles, no stars", () => {
     // The halo, the body, four blobs, the core, and the clip path's copy of the body.
-    expect(svg(scene(0.5, 0), 112).match(/<circle /g)).toHaveLength(8);
+    expect(source.match(/<circle /g)).toHaveLength(8);
   });
 });

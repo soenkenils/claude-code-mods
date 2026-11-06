@@ -285,6 +285,43 @@ for (const surface of SURFACES) {
         expect(await words($, surface)).toContain(EN.out);
       });
 
+      test("breathes in and out with no holds in the even pattern", noCountdown({ pattern: "even" }), async ($, on) => {
+        const clock = core(on);
+        await start($);
+        await beginTurn($);
+        expect(await words($, surface)).toContain("Gleichmäßiges Atmen · 4-4");
+        await clock.advance(4000);
+        expect(await words($, surface)).toContain(DE.out);
+        expect(await words($, surface)).not.toContain(DE.hold);
+        await clock.advance(4000);
+        expect(await words($, surface)).toContain(DE.in);
+      });
+
+      test("lets the breath out take 1.5 times as long in the calm pattern", noCountdown({ pattern: "calm", language: "en" }), async ($, on) => {
+        const clock = core(on);
+        await start($);
+        await beginTurn($);
+        expect(await words($, surface)).toContain("Calm Breathing · 4-6");
+        await clock.advance(4000);
+        expect(await words($, surface)).toContain(EN.out);
+        await clock.advance(5900); // 9.9 s
+        expect(await words($, surface)).toContain(EN.out);
+        await clock.advance(200); // 10.1 s
+        expect(await words($, surface)).toContain(EN.in);
+      });
+
+      test("finishes a calm breath at the end of its long exhale", noCountdown({ pattern: "calm" }), async ($, on) => {
+        const clock = core(on);
+        await start($);
+        await beginTurn($);
+        await clock.advance(1000);
+        await endTurn($);
+        await clock.advance(8900); // 9.9 s
+        expect(await words($, surface)).toContain(DE.out);
+        await clock.advance(200); // 10.1 s
+        await isEngine(await band($, surface));
+      });
+
       test("waits startAfterSeconds before showing anything, then begins with a breath in", noCountdown({ startAfterSeconds: 3 }), async ($, on) => {
         const clock = core(on);
         await start($);
@@ -483,17 +520,14 @@ describe("the countdown on the terminal", () => {
 });
 
 describe("the countdown on the desktop", () => {
-  test("shows the orb at rest, with the number in its alt text", async ($, on) => {
-    const clock = core(on);
+  test("shows the orb at rest until the breath begins, with the number beside it", async ($, on) => {
+    core(on);
     await start($);
     await beginTurn($);
     const ui = await band($, "desktop");
-    const orb = async () => (await ui.findAll({ type: "Svg" }))[0];
-    expect((await orb())?.props.alt).toBe("Mach dich bereit, 3");
-    const resting = String((await orb())?.props.source);
-    await clock.advance(4000);
-    expect((await orb())?.props.alt).toBe("Einatmen, 4");
-    expect(String((await orb())?.props.source)).not.toBe(resting);
+    // The countdown from 3 takes 4 s, so the picture's breath waits that long.
+    expect(String((await ui.findAll({ type: "Svg" }))[0]?.props.source)).toContain('begin="4s"');
+    expect(await ui.find({ type: "Text", text: /^3$/ })).toBeDefined();
     await ui.unmount();
   });
 });
@@ -610,7 +644,7 @@ describe("on the terminal", () => {
       expect(await ui.findAll({ type: "Raster" })).toEqual([]);
       expect(await ui.findAll({ type: "Svg" })).toEqual([]);
       expect(await ui.find({ type: "Text", text: /Einatmen/ })).toBeDefined();
-      expect(await ui.find({ type: "Text", text: /^─+$|^━+─*$/ })).toBeDefined();
+      expect(await ui.find({ type: "Text", text: /^─+$|^█*[▏▎▍▌▋▊▉]?─*$/ })).toBeDefined();
       await ui.unmount();
     }
   });
@@ -635,34 +669,65 @@ describe("on the terminal", () => {
     await beginTurn($);
     const bar = async () => {
       const ui = await band($, "terminal");
-      const found = (await ui.findAll({ type: "Text" })).map((t) => t.text).find((t) => /^[━─]+$/.test(t)) ?? "";
+      const found = (await ui.findAll({ type: "Text" })).map((t) => t.text).find((t) => /^[█▏▎▍▌▋▊▉─]+$/.test(t)) ?? "";
       await ui.unmount();
       return found;
     };
     // Empty at the start of the breath, full when the lungs are, empty again after the exhale.
     expect(await bar()).toMatch(/^─+$/);
     await clock.advance(4000);
-    expect(await bar()).toMatch(/^━+$/);
+    expect(await bar()).toMatch(/^█+$/);
     await clock.advance(8000);
     expect(await bar()).toMatch(/^─+$/);
+  });
+
+  test("moves the bar in eighths of a cell", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    await start($);
+    await beginTurn($);
+    // A second into breathing in the lungs are 15% full: 19 of the 16-cell bar's 128 eighths.
+    await clock.advance(1000);
+    const ui = await band($, "terminal");
+    expect(await ui.find({ type: "Text", text: /^[█▏▎▍▌▋▊▉─]+$/ })).toMatchObject({ text: "██▍" + "─".repeat(13) });
+    await ui.unmount();
   });
 });
 
 describe("on the desktop", () => {
-  test("draws the orb as a vector picture that changes with the breath", noCountdown(), async ($, on) => {
+  test("draws the orb as a picture that animates itself, so a redraw sends the same one", noCountdown(), async ($, on) => {
     const clock = core(on);
     await start($);
     await beginTurn($);
     const ui = await band($, "desktop");
     const orb = async () => (await ui.findAll({ type: "Svg" }))[0];
-    const empty = String((await orb())?.props.source);
-    expect(empty).toContain("<svg");
-    expect((await orb())?.props.alt).toBe("Einatmen, 4");
+    const first = await orb();
+    expect(String(first?.props.source)).toContain("<animate ");
+    expect(first?.props.isInteractive).toBe(true);
+    expect(first?.props.alt).toBe("Atemkugel");
     await clock.advance(4000);
-    const full = String((await orb())?.props.source);
-    expect(full).not.toBe(empty);
-    expect((await orb())?.props.alt).toBe("Halten, 4");
+    // The words have moved on to the hold; the picture is the one it was.
+    expect(await ui.find({ type: "Text", text: new RegExp(`^${DE.hold}$`) })).toBeDefined();
+    expect((await orb())?.props).toEqual(first?.props);
     await ui.unmount();
+  });
+
+  test("draws a new run's picture at the point of the breath it first shows in", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    await start($);
+    await beginTurn($);
+    const source = async () => {
+      const ui = await band($, "desktop");
+      const found = String((await ui.findAll({ type: "Svg" }))[0]?.props.source);
+      await ui.unmount();
+      return found;
+    };
+    expect(await source()).toContain('begin="0s"');
+    await clock.advance(1000);
+    await endTurn($);
+    await clock.advance(20_000); // long past the end of its exhale
+    await beginTurn($);
+    await clock.advance(1500);
+    expect(await source()).toContain('begin="-1.5s"');
   });
 
   test("draws no raster, which only a terminal has", noCountdown(), async ($, on) => {

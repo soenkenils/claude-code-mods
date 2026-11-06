@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { box, countdownAt, countdownMs, cycleMs, frameAt, restAt } from "../hooks/pacer";
+import { box, countdownAt, countdownMs, cycleMs, frameAt, isPatternId, patternOf, restAt, timing } from "../hooks/pacer";
 
 const SECOND = 1000;
 
@@ -17,6 +17,41 @@ describe("box breathing", () => {
 
   test("takes its phase length from the setting", () => {
     expect(cycleMs(box(2.5))).toBe(10_000);
+  });
+});
+
+describe("the other patterns", () => {
+  test("box is the box pattern, and its timing reads 4-4-4-4", () => {
+    expect(patternOf("box", 4)).toEqual(box(4));
+    expect(timing(box(4))).toBe("4-4-4-4");
+  });
+
+  test("even is in and out, each the phase length, with no holds", () => {
+    const even = patternOf("even", 4);
+    expect(even.phases.map((p) => p.kind)).toEqual(["in", "out"]);
+    expect(cycleMs(even)).toBe(8000);
+    expect(frameAt(even, 4000).kind).toBe("out");
+    expect(frameAt(even, 8000).kind).toBe("in");
+    expect(timing(even)).toBe("4-4");
+  });
+
+  test("calm lets the breath out take 1.5 times as long", () => {
+    const calm = patternOf("calm", 4);
+    expect(calm.phases.map((p) => p.ms)).toEqual([4000, 6000]);
+    expect(timing(calm)).toBe("4-6");
+    expect(timing(patternOf("calm", 3))).toBe("3-4.5");
+  });
+
+  test("a breath with no hold after it finishes at the end of its exhale", () => {
+    const calm = patternOf("calm", 4);
+    expect(restAt(calm, 0, 1 * SECOND)).toBe(10 * SECOND);
+    expect(restAt(calm, 0, 9 * SECOND)).toBe(10 * SECOND);
+  });
+
+  test("knows its names", () => {
+    expect(["box", "even", "calm"].every(isPatternId)).toBe(true);
+    expect(isPatternId("square")).toBe(false);
+    expect(isPatternId(4)).toBe(false);
   });
 });
 

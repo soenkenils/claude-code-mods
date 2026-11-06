@@ -1,14 +1,21 @@
 {
   "name": "breathe",
-  "version": "0.1.5",
-  "description": "A breathing guide while Claude works: box breathing as words and a bar above the prompt in the terminal, and an aurora orb that expands and contracts in Claude Desktop. When the turn ends it finishes the breath you are in.",
+  "version": "0.2.0",
+  "description": "A breathing guide while Claude works: box breathing (or an even or calm pattern) as words and a bar above the prompt in the terminal, and an aurora orb that expands and contracts in Claude Desktop. When the turn ends it finishes the breath you are in.",
   "author": { "name": "Sönke" },
   "types": "./types/index.d.ts",
   "userConfig": {
+    "pattern": {
+      "type": "string",
+      "title": "Pattern",
+      "description": "box: breathe in, hold, breathe out, hold. even: breathe in and out, no holds. calm: breathe in, then out for 1.5 times as long, no holds.",
+      "default": "box",
+      "options": ["box", "even", "calm"]
+    },
     "phaseSeconds": {
       "type": "number",
       "title": "Seconds per phase",
-      "description": "Length of each of the four box breathing phases: breathe in, hold, breathe out, hold. 4 is the classic box breathing.",
+      "description": "Length of each phase. In calm the breath out takes 1.5 times this. 4 is the classic box breathing.",
       "default": 4,
       "min": 2,
       "max": 10

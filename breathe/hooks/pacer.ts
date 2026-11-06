@@ -31,6 +31,32 @@ export function box(phaseSeconds: number): Pattern {
   };
 }
 
+// The patterns the `pattern` setting picks from. `even` and `calm` have no holds, for when
+// holding the breath feels unpleasant; `calm` lets the breath out take longer, to wind down.
+export const PATTERN_IDS = ["box", "even", "calm"] as const;
+export type PatternId = (typeof PATTERN_IDS)[number];
+
+export const isPatternId = (value: unknown): value is PatternId =>
+  typeof value === "string" && (PATTERN_IDS as readonly string[]).includes(value);
+
+// `phaseSeconds` is each phase's length; in `calm` the breath out takes 1.5 times as long.
+export function patternOf(id: PatternId, phaseSeconds: number): Pattern {
+  const ms = Math.max(1, Math.round(phaseSeconds * 1000));
+  switch (id) {
+    case "box":
+      return box(phaseSeconds);
+    case "even":
+      return { id, phases: [{ kind: "in", ms }, { kind: "out", ms }] };
+    case "calm":
+      return { id, phases: [{ kind: "in", ms }, { kind: "out", ms: Math.round(ms * 1.5) }] };
+  }
+}
+
+// The phases in seconds, as the hint shows them: `4-4-4-4`, `4-6`.
+export function timing(pattern: Pattern) {
+  return pattern.phases.map((p) => String(+(p.ms / 1000).toFixed(1))).join("-");
+}
+
 export function cycleMs(pattern: Pattern) {
   return pattern.phases.reduce((sum, p) => sum + p.ms, 0);
 }

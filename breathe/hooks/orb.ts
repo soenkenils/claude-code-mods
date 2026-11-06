@@ -7,6 +7,9 @@
 // centre and y pointing down. The sizes and opacities follow the design's keyframes:
 // the halo goes .55 to 1.25 times its size, the body .4 to 1, the core .5 to 1.15.
 
+import { cycleMs } from "./pacer";
+import type { Pattern } from "./pacer";
+
 export const EXTENT = 1.6; // The picture shows this far out from the centre, each way.
 
 type Rgb = readonly [number, number, number];
@@ -81,24 +84,76 @@ const DEFS = [
   `<filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>`,
 ].join("");
 
-// The orb on no ground at all: the picture is transparent, so the app's own background shows
-// through (the halo is a faint glow on any theme). `shown` is its size on screen, in pixels.
-export function svg(s: Scene, shown: number): string {
-  const at = (n: number) => +(MID + n * SCALE).toFixed(1);
-  const len = (n: number) => +(n * SCALE).toFixed(1);
-  const circle = (x: number, y: number, r: number, attrs: string) => `<circle cx="${at(x)}" cy="${at(y)}" r="${len(r)}" ${attrs}/>`;
+// The pacer's ease as a SMIL spline: slow at both ends, like a breath.
+const SPLINE = "0.45 0 0.55 1";
 
-  const blobs = s.blobs.map((b, i) => circle(b.x, b.y, b.r, `fill="url(#blob${i})"`));
+const num = (n: number, digits: number) => +n.toFixed(digits);
+const len = (n: number) => num(n * SCALE, 2);
+
+// The orb that breathes by itself. SMIL animations inside the picture move it through the
+// pattern, so the surface animates it smoothly and the band sends the same picture on every
+// redraw instead of a new one per frame. It needs a surface that runs SMIL (the desktop's
+// interactive Svg frame). On no ground at all: the picture is transparent, so the app's own
+// background shows through (the halo is a faint glow on any theme).
+//
+// `elapsedMs` is how far into the breathing the picture is when it first shows: negative
+// during the countdown, when the breath waits that long at rest. `shown` is its size on
+// screen, in pixels.
+export function breathingSvg(pattern: Pattern, elapsedMs: number, shown: number): string {
+  const total = cycleMs(pattern);
+  // The lungs at each phase's end: full after breathing in and the hold that follows, empty
+  // after breathing out and the hold after that.
+  const points: Array<[number, number]> = [[0, 0]];
+  let end = 0;
+  for (const phase of pattern.phases) {
+    end += phase.ms;
+    points.push([end, phase.kind === "in" || phase.kind === "holdIn" ? 1 : 0]);
+  }
+  const timing =
+    `keyTimes="${points.map(([ms]) => num(ms / total, 4)).join(";")}" calcMode="spline" ` +
+    `keySplines="${points.slice(1).map(() => SPLINE).join(";")}" ` +
+    `dur="${num(total / 1000, 3)}s" begin="${num(-elapsedMs / 1000, 3)}s" repeatCount="indefinite"`;
+  // What goes from its value with empty lungs to its value with full ones, and back.
+  const values = (empty: number, full: number, digits: number) =>
+    points.map(([, fill]) => num(empty + (full - empty) * fill, digits)).join(";");
+  const breathe = (attribute: string, empty: number, full: number, digits = 2) =>
+    `<animate attributeName="${attribute}" values="${values(empty, full, digits)}" ${timing}/>`;
+
+  const rest = scene(0, 0);
+  const open = scene(1, 0);
+  const circle = (r: number, attrs: string, inner = "") => `<circle cx="${MID}" cy="${MID}" r="${len(r)}" ${attrs}>${inner}</circle>`;
+  const radius = (empty: number, full: number) => breathe("r", len(empty), len(full));
+
+  // Each blob circles the centre at its own pace, its orbit and size growing with the body.
+  const angle = (b: (typeof BLOBS)[number]) => ((b.phase + (TAU * elapsedMs) / 1000 / b.period) * 180) / Math.PI;
+  const blobs = BLOBS.map((b, i) => {
+    const from = num(angle(b), 1);
+    const to = num(from + (b.period > 0 ? 360 : -360), 1);
+    return (
+      `<g transform="rotate(${from})">` +
+      `<animateTransform attributeName="transform" type="rotate" from="${from}" to="${to}" dur="${Math.abs(b.period)}s" repeatCount="indefinite"/>` +
+      `<circle cx="${len(b.orbit)}" cy="0" r="${len(b.size)}" fill="url(#blob${i})"/></g>`
+    );
+  }).join("");
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${shown}" height="${shown}">`,
-    `<defs>${DEFS}<clipPath id="orb">${circle(0, 0, s.body.r, "")}</clipPath></defs>`,
-    circle(0, 0, s.halo.r, `fill="url(#halo)" opacity="${+s.halo.opacity.toFixed(2)}"`),
-    `<g filter="url(#soft)" opacity="${+s.body.opacity.toFixed(2)}">`,
-    circle(0, 0, s.body.r, `fill="url(#body)"`),
-    `<g clip-path="url(#orb)">${blobs.join("")}</g>`,
+    `<defs>${DEFS}<clipPath id="orb">${circle(rest.body.r, "", radius(rest.body.r, open.body.r))}</clipPath></defs>`,
+    circle(
+      rest.halo.r,
+      `fill="url(#halo)" opacity="${num(rest.halo.opacity, 2)}"`,
+      radius(rest.halo.r, open.halo.r) + breathe("opacity", rest.halo.opacity, open.halo.opacity),
+    ),
+    `<g filter="url(#soft)" opacity="${num(rest.body.opacity, 2)}">`,
+    breathe("opacity", rest.body.opacity, open.body.opacity),
+    circle(rest.body.r, `fill="url(#body)"`, radius(rest.body.r, open.body.r)),
+    `<g clip-path="url(#orb)"><g transform="translate(${MID} ${MID})">`,
+    `<g transform="scale(${num(rest.body.r, 3)})">`,
+    `<animateTransform attributeName="transform" type="scale" values="${values(rest.body.r, open.body.r, 3)}" ${timing}/>`,
+    blobs,
+    `</g></g></g>`,
     `</g>`,
-    circle(0, 0, s.core.r, `fill="url(#core)"`),
+    circle(rest.core.r, `fill="url(#core)"`, radius(rest.core.r, open.core.r)),
     `</svg>`,
   ].join("");
 }

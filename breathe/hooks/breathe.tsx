@@ -1,20 +1,20 @@
 // Breathe: a breathing exercise to look at while Claude works.
 //
-// While a turn runs, a band above the prompt breathes in box breathing time (in, hold, out,
-// hold), after a short countdown (3, 2, 1, 0). When the turn ends it does not vanish: it
-// finishes the breath it is in and goes at the end of the exhale. A turn that ends during the
-// countdown has no breath to finish, so the band goes at once. A Hide button takes the band
-// away for the rest of the turn, for when you do not want to breathe along just now.
+// While a turn runs, a band above the prompt breathes in time (box breathing by default: in,
+// hold, out, hold), after a short countdown (3, 2, 1, 0). When the turn ends it does not
+// vanish: it finishes the breath it is in and goes at the end of the exhale. A turn that ends
+// during the countdown has no breath to finish, so the band goes at once. A Hide button takes
+// the band away for the rest of the turn, for when you do not want to breathe along just now.
 //
 // One module, two drawings. Claude Desktop gets an aurora orb that expands and contracts, an
-// SVG redrawn for every frame. The terminal gets one line: the phase in words and a bar that
-// fills and empties with the breath.
+// SVG that animates itself, so the band sends the same picture on every redraw. The terminal
+// gets one line: the phase in words and a bar that fills and empties with the breath.
 
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, PluginOptions, Register, Timer } from "claude-code";
 
-import { scene, svg } from "./orb";
-import { box, countdownAt, countdownMs, frameAt, restAt } from "./pacer";
+import { breathingSvg } from "./orb";
+import { countdownAt, countdownMs, frameAt, isPatternId, patternOf, restAt, timing } from "./pacer";
 import type { Kind } from "./pacer";
 
 const COMMAND = "breathe";
@@ -23,13 +23,20 @@ const ORB_PIXELS = 112; // The desktop's orb, in CSS pixels.
 
 // Held by the host, so a reload of this file does not lose the breath in progress.
 const run = atom({ plugin: "breathe", key: "run" } as const, null, { shape: "run-1" });
-const clock = atom({ plugin: "breathe", key: "now" } as const, 0);
 const isMuted = atom({ plugin: "breathe", key: "isMuted" } as const, false);
 
 // The words next to the animation. The design is in German.
 const LABELS = {
-  de: { hide: "Ausblenden", ready: "Mach dich bereit", in: "Einatmen", holdIn: "Halten", out: "Ausatmen", holdOut: "Halten", done: "Claude ist fertig · atme zu Ende aus" },
-  en: { hide: "Hide", ready: "Get ready", in: "Breathe in", holdIn: "Hold", out: "Breathe out", holdOut: "Hold", done: "Claude is done · finish your exhale" },
+  de: {
+    hide: "Ausblenden", ready: "Mach dich bereit", in: "Einatmen", holdIn: "Halten", out: "Ausatmen", holdOut: "Halten",
+    done: "Claude ist fertig · atme zu Ende aus", orb: "Atemkugel",
+    names: { box: "Box Breathing", even: "Gleichmäßiges Atmen", calm: "Ruhiges Atmen" },
+  },
+  en: {
+    hide: "Hide", ready: "Get ready", in: "Breathe in", holdIn: "Hold", out: "Breathe out", holdOut: "Hold",
+    done: "Claude is done · finish your exhale", orb: "Breathing orb",
+    names: { box: "Box Breathing", even: "Even Breathing", calm: "Calm Breathing" },
+  },
 } as const;
 
 // Theme keys, so the text follows the person's theme: green in, clay out, blue for the holds.
@@ -42,13 +49,14 @@ function configFrom(options: PluginOptions) {
     const value = options[key];
     return typeof value === "number" && Number.isFinite(value) ? value : fallback;
   };
-  const phaseSeconds = number("phaseSeconds", 4);
+  const pattern = patternOf(isPatternId(options.pattern) ? options.pattern : "box", number("phaseSeconds", 4));
+  const labels = options.language === "en" ? LABELS.en : LABELS.de;
   return {
-    pattern: box(phaseSeconds),
-    phaseSeconds,
+    pattern,
     delayMs: number("startAfterSeconds", 0) * 1000,
     countdownMs: countdownMs(number("countdownSeconds", 3)),
-    labels: options.language === "en" ? LABELS.en : LABELS.de,
+    labels,
+    hint: `${labels.names[isPatternId(pattern.id) ? pattern.id : "box"]} · ${timing(pattern)}`,
   };
 }
 type Config = ReturnType<typeof configFrom>;
@@ -59,6 +67,10 @@ export const register: Register = (on, options) => {
 
   // Held by this load of the module: a reload drops the timer with the old module.
   const ticker: Ticker = {};
+  // The desktop's orb, one picture per breathing run: it animates itself, so every redraw
+  // sends the same source and the surface can keep the picture it has. A reload draws it
+  // afresh, in step with the breath.
+  let orb: { startedAt: number; source: string } | undefined;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({ name: COMMAND, description: "Turn the breathing animation on or off", argumentHint: "[on|off]" });
@@ -97,8 +109,8 @@ export const register: Register = (on, options) => {
     const current = await read($, run);
     if (current === null || e.props.hasSurvey || (await read($, isMuted))) return next(e);
 
-    // Reading the time is what redraws the band at every tick.
-    const now = await read($, clock);
+    // The tick redraws the band (`$.ui.invalidate`), and each draw reads the time afresh.
+    const now = await $.clock.now();
     // `elapsed` is negative before the first breath: the wait, then the countdown that ends at 0.
     const elapsed = now - current.startedAt;
     const isOver = current.finishAt !== null && now >= current.finishAt;
@@ -109,7 +121,7 @@ export const register: Register = (on, options) => {
     const shown = isCounting
       ? { label: cfg.labels.ready, color: READY_COLOR, fill: 0, number: countdownAt(-elapsed) }
       : { label: cfg.labels[frame.kind], color: COLOR[frame.kind], fill: frame.fill, number: frame.secondsLeft };
-    const hint = current.finishAt === null ? `Box Breathing · ${Array(4).fill(cfg.phaseSeconds).join("-")}` : cfg.labels.done;
+    const hint = current.finishAt === null ? cfg.hint : cfg.labels.done;
     const { Box, Text, Button } = $.ui.resolve(e);
     const hideButton = <Button key="hide" label={cfg.labels.hide} plain dimColor onPress={() => dismiss($)} />;
 
@@ -139,10 +151,13 @@ export const register: Register = (on, options) => {
       mine = oneLine();
     } else {
       const { Svg } = $.ui.resolve(e);
-      const draw = scene(shown.fill, elapsed / 1000);
+      if (orb === undefined || orb.startedAt !== current.startedAt) {
+        orb = { startedAt: current.startedAt, source: breathingSvg(cfg.pattern, elapsed, ORB_PIXELS) };
+      }
       mine = (
         <Box flexDirection="row" alignItems="center" columnGap={3} paddingX={1}>
-          <Svg source={svg(draw, ORB_PIXELS)} alt={`${shown.label}, ${shown.number}`} />
+          {/* The words beside it change; the picture and its alt stay, so a redraw does not replace it. */}
+          <Svg source={orb.source} alt={cfg.labels.orb} isInteractive />
           <Box flexDirection="column" flexGrow={1}>
             <Text size="title" weight="semibold">
               {shown.label}
@@ -189,7 +204,6 @@ async function begin($: EngineInterface, ticker: Ticker, cfg: Config) {
       ? { startedAt: current.startedAt, finishAt: null }
       : { startedAt: now + cfg.delayMs + cfg.countdownMs, finishAt: null },
   );
-  await update($, clock, () => now);
   startTicking($, ticker);
 }
 
@@ -210,8 +224,8 @@ function startTicking($: EngineInterface, ticker: Ticker) {
   ticker.timer = $.clock.every(FRAME_MS, () => tick($, ticker));
 }
 
-// A frame: the new time is what draws it. At the end of a breath the animation goes, and the
-// timer with it.
+// A frame: ask for a redraw, which reads the new time. At the end of a breath the animation
+// goes, and the timer with it.
 async function tick($: EngineInterface, ticker: Ticker) {
   try {
     const now = await $.clock.now();
@@ -226,14 +240,20 @@ async function tick($: EngineInterface, ticker: Ticker) {
       if ((await read($, run)) !== null) startTicking($, ticker);
       return;
     }
-    await update($, clock, () => now);
+    $.ui.invalidate("ui.render");
   } catch {
     // The next tick tries again.
   }
 }
 
-// `━━━━────`: how much of it is filled. A little shows for any breath at all.
+// The left part of a cell, in eighths, so the bar moves in steps finer than a cell.
+const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+
+// `████▌───`: how much of it is filled, to an eighth of a cell. A little shows for any breath at all.
 function bar(share: number, width: number) {
-  const filled = share <= 0 ? 0 : Math.min(width, Math.max(1, Math.round(share * width)));
-  return "━".repeat(filled) + "─".repeat(width - filled);
+  if (share <= 0) return "─".repeat(width);
+  const eighths = Math.min(width * 8, Math.max(1, Math.round(share * width * 8)));
+  const full = Math.floor(eighths / 8);
+  const part = EIGHTHS[eighths % 8] ?? "";
+  return "█".repeat(full) + part + "─".repeat(width - full - (part ? 1 : 0));
 }

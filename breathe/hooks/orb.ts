@@ -89,18 +89,91 @@ const SPLINE = "0.45 0 0.55 1";
 
 const num = (n: number, digits: number) => +n.toFixed(digits);
 const len = (n: number) => num(n * SCALE, 2);
+const esc = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
-// The orb that breathes by itself. SMIL animations inside the picture move it through the
-// pattern, so the surface animates it smoothly and the band sends the same picture on every
-// redraw instead of a new one per frame. It needs a surface that runs SMIL (the desktop's
-// interactive Svg frame). On no ground at all: the picture is transparent, so the app's own
-// background shows through (the halo is a faint glow on any theme).
-//
-// `elapsedMs` is how far into the breathing the picture is when it first shows: negative
-// during the countdown, when the breath waits that long at rest. `shown` is its size on
-// screen, in pixels.
-export function breathingSvg(pattern: Pattern, elapsedMs: number, shown: number): string {
+// The words sit to the right of the orb, in the same picture, so they change in step with it.
+const TEXT_X = SIZE + 12; // where they start, in drawing units
+const FONT = 42; // their size in drawing units: about 22 px when the picture is 84 px high
+const CHAR = 0.6; // an average character's width, in em, to size the picture
+// What colour is right is not known in here: the picture cannot see the app's theme, and the
+// OS's setting is not always the app's. This grey reads on a dark ground (about 4.4 to 1) and
+// on a light one (about 3.3 to 1), which is enough for large type.
+const WORD_FILL = "#8A8985";
+const CROSS = 150; // ms: a word fades out and the next in across this long, each side of a change
+
+export type Words = { ready: string; in: string; holdIn: string; out: string; holdOut: string };
+
+export type Picture = {
+  pattern: Pattern;
+  words: Words;
+  // How far into the breathing the picture is when it first shows: negative during the
+  // countdown, when the breath waits that long at rest.
+  elapsedMs: number;
+  // The countdown's first number: 3 shows 3, 2, 1, 0, a second each, before the breath. 0: none.
+  countdownFrom: number;
+  // Its height on screen, in pixels; the width follows the words.
+  shown: number;
+  // The picture fades in over this long when it first shows. 0 or absent: it is there at once.
+  fadeInMs?: number;
+  // And fades out over `ms`, starting `inMs` after it first shows.
+  fadeOut?: { inMs: number; ms: number };
+};
+
+// A word's opacity over one cycle, as keyframes. It is 1 in its own phase and 0 in the others,
+// and across `CROSS` either side of a change it fades out as the next fades in.
+function wordLevels(pattern: Pattern, index: number) {
   const total = cycleMs(pattern);
+  const spans: Array<{ start: number; length: number }> = [];
+  let at = 0;
+  for (const phase of pattern.phases) {
+    spans.push({ start: at, length: phase.ms });
+    at += phase.ms;
+  }
+  const ramp = (x: number) => Math.min(1, Math.max(0, x / (2 * CROSS) + 0.5));
+  const span = spans[index]!;
+  const level = (t: number) => {
+    const since = (((t - span.start) % total) + total) % total;
+    const offset = since >= total - CROSS ? since - total : since; // the fade in just before the start counts
+    return Math.min(ramp(offset), 1 - ramp(offset - span.length));
+  };
+  const marks = new Set<number>([0, total]);
+  for (const s of spans) for (const edge of [s.start, s.start + s.length]) for (const d of [-CROSS, CROSS]) marks.add((((edge + d) % total) + total) % total);
+  const times = [...marks].sort((a, b) => a - b);
+  return {
+    keyTimes: times.map((t) => num(t / total, 5)).join(";"),
+    values: times.map((t) => num(level(t === total ? 0 : t), 3)).join(";"),
+  };
+}
+
+// A still orb, for the one that does not move: the same layers as the breathing one, at one size.
+function stillOrb(s: Scene, clipId: string, attrs = "", inner = "") {
+  const at = (n: number) => num(MID + n * SCALE, 2);
+  const circle = (x: number, y: number, r: number, a: string) => `<circle cx="${at(x)}" cy="${at(y)}" r="${len(r)}" ${a}/>`;
+  return [
+    `<g ${attrs}>${inner}`,
+    circle(0, 0, s.halo.r, `fill="url(#halo)" opacity="${num(s.halo.opacity, 2)}"`),
+    `<g filter="url(#soft)" opacity="${num(s.body.opacity, 2)}">`,
+    circle(0, 0, s.body.r, `fill="url(#body)"`),
+    `<clipPath id="${clipId}">${circle(0, 0, s.body.r, "")}</clipPath>`,
+    `<g clip-path="url(#${clipId})">${s.blobs.map((b, i) => circle(b.x, b.y, b.r, `fill="url(#blob${i})"`)).join("")}</g>`,
+    `</g>`,
+    circle(0, 0, s.core.r, `fill="url(#core)"`),
+    `</g>`,
+  ].join("");
+}
+
+// The orb that breathes by itself, with the words beside it. SMIL animations inside the
+// picture move it through the pattern, so the surface animates it smoothly and the band sends
+// the same picture on every redraw instead of a new one per frame. It needs a surface that runs
+// SMIL (the desktop's interactive Svg frame). On no ground at all: the picture is transparent,
+// so the app's own background shows through (the halo is a faint glow on any theme).
+//
+// For a person who asks their system for less motion, the orb does not grow and shrink: two
+// still orbs, a small and a large, fade into each other at the same pace.
+export function breathingSvg(o: Picture): string {
+  const { pattern, words, elapsedMs } = o;
+  const total = cycleMs(pattern);
+  const begin = num(-elapsedMs / 1000, 3); // when the first breath begins, in seconds from now
   // The lungs at each phase's end: full after breathing in and the hold that follows, empty
   // after breathing out and the hold after that.
   const points: Array<[number, number]> = [[0, 0]];
@@ -112,7 +185,7 @@ export function breathingSvg(pattern: Pattern, elapsedMs: number, shown: number)
   const timing =
     `keyTimes="${points.map(([ms]) => num(ms / total, 4)).join(";")}" calcMode="spline" ` +
     `keySplines="${points.slice(1).map(() => SPLINE).join(";")}" ` +
-    `dur="${num(total / 1000, 3)}s" begin="${num(-elapsedMs / 1000, 3)}s" repeatCount="indefinite"`;
+    `dur="${num(total / 1000, 3)}s" begin="${begin}s" repeatCount="indefinite"`;
   // What goes from its value with empty lungs to its value with full ones, and back.
   const values = (empty: number, full: number, digits: number) =>
     points.map(([, fill]) => num(empty + (full - empty) * fill, digits)).join(";");
@@ -136,9 +209,9 @@ export function breathingSvg(pattern: Pattern, elapsedMs: number, shown: number)
     );
   }).join("");
 
-  return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${shown}" height="${shown}">`,
-    `<defs>${DEFS}<clipPath id="orb">${circle(rest.body.r, "", radius(rest.body.r, open.body.r))}</clipPath></defs>`,
+  const moving = [
+    `<g class="move">`,
+    `<defs><clipPath id="orb">${circle(rest.body.r, "", radius(rest.body.r, open.body.r))}</clipPath></defs>`,
     circle(
       rest.halo.r,
       `fill="url(#halo)" opacity="${num(rest.halo.opacity, 2)}"`,
@@ -154,6 +227,69 @@ export function breathingSvg(pattern: Pattern, elapsedMs: number, shown: number)
     `</g></g></g>`,
     `</g>`,
     circle(rest.core.r, `fill="url(#core)"`, radius(rest.core.r, open.core.r)),
+    `</g>`,
+  ].join("");
+
+  const still = [
+    `<g class="still" display="none">`,
+    stillOrb(rest, "orb-rest"),
+    stillOrb(open, "orb-open", `opacity="0"`, breathe("opacity", 0, 1)),
+    `</g>`,
+  ].join("");
+
+  // The words: one for each phase, each lit in its own phase; and the countdown's numbers, each
+  // lit for its second, ending as the first breath begins.
+  const text = (content: string, animation: string) =>
+    `<text x="${TEXT_X}" y="${num(MID + FONT * 0.35, 1)}" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" ` +
+    `font-size="${FONT}" font-weight="600" letter-spacing="-0.4" fill="${WORD_FILL}" opacity="0">${esc(content)}${animation}</text>`;
+  const phaseWords = pattern.phases.map((phase, i) => {
+    const { keyTimes, values: levels } = wordLevels(pattern, i);
+    // Before the first breath an animation has not begun, so its word would sit at 0 and then jump
+    // to the middle of the cross-fade. The first word rises to that point across the fade before it.
+    const first = Number(levels.split(";")[0]);
+    const leadIn =
+      i === 0 && begin > 0
+        ? `<animate attributeName="opacity" from="0" to="${first}" dur="${num(CROSS / 1000, 3)}s" begin="${num(begin - CROSS / 1000, 3)}s"/>`
+        : "";
+    return text(
+      words[phase.kind],
+      leadIn +
+        `<animate attributeName="opacity" values="${levels}" keyTimes="${keyTimes}" dur="${num(total / 1000, 3)}s" begin="${begin}s" repeatCount="indefinite"/>`,
+    );
+  });
+  const from = Math.max(0, Math.round(o.countdownFrom));
+  const countdownWords: string[] = [];
+  const countdownTexts: string[] = [];
+  if (o.countdownFrom > 0) {
+    const window = 1000 + 2 * CROSS;
+    const fade = num((2 * CROSS) / window, 4);
+    for (let n = from; n >= 0; n--) {
+      const content = `${words.ready}  ${n}`;
+      countdownTexts.push(content);
+      countdownWords.push(
+        text(
+          content,
+          `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;${fade};${num(1 - fade, 4)};1" dur="${num(window / 1000, 3)}s" ` +
+            `begin="${num(-elapsedMs / 1000 - (n + 1) - CROSS / 1000, 3)}s"/>`,
+        ),
+      );
+    }
+  }
+  const chars = Math.max(...pattern.phases.map((p) => words[p.kind].length), ...countdownTexts.map((t) => t.length));
+  const width = TEXT_X + Math.ceil(chars * FONT * CHAR) + 8;
+  const scale = o.shown / SIZE;
+
+  const fadeIn = o.fadeInMs ? `<animate attributeName="opacity" from="0" to="1" dur="${num(o.fadeInMs / 1000, 3)}s" begin="0s" fill="freeze"/>` : "";
+  const fadeOut = o.fadeOut
+    ? `<animate attributeName="opacity" from="1" to="0" dur="${num(o.fadeOut.ms / 1000, 3)}s" begin="${num(o.fadeOut.inMs / 1000, 3)}s" fill="freeze"/>`
+    : "";
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${SIZE}" width="${num(width * scale, 1)}" height="${o.shown}">`,
+    // `display` on the still orbs is also an attribute, so a surface that drops this style block still hides them.
+    `<style>@media (prefers-reduced-motion: reduce){.move{display:none}.still{display:inline}}</style>`,
+    `<defs>${DEFS}</defs>`,
+    `<g>${fadeOut}<g>${fadeIn}${moving}${still}${phaseWords.join("")}${countdownWords.join("")}</g></g>`,
     `</svg>`,
   ].join("");
 }

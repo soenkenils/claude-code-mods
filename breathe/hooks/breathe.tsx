@@ -6,9 +6,13 @@
 // during the countdown has no breath to finish, so the band goes at once. A Hide button takes
 // the band away for the rest of the turn, for when you do not want to breathe along just now.
 //
-// One module, two drawings. Claude Desktop gets an aurora orb that expands and contracts, an
-// SVG that animates itself, so the band sends the same picture on every redraw. The terminal
-// gets one line: the phase in words and a bar that fills and empties with the breath.
+// One module, two drawings. Claude Desktop gets an aurora orb that expands and contracts with
+// the phase in words beside it, one SVG that animates itself, so the band sends the same
+// picture on every redraw. The terminal gets one line: the phase in words and a bar that fills
+// and empties with the breath.
+//
+// The band does not appear the moment a turn begins: a quick answer should not call up a
+// breathing exercise it then takes away. It waits `startAfterSeconds` (3 by default).
 
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, PluginOptions, Register, Timer } from "claude-code";
@@ -19,10 +23,13 @@ import type { Kind } from "./pacer";
 
 const COMMAND = "breathe";
 const FRAME_MS = 100;
-const ORB_PIXELS = 112; // The desktop's orb, in CSS pixels.
+const ORB_PIXELS = 84; // The desktop's picture is this high, in CSS pixels.
+const FADE_IN_MS = 800; // The desktop's picture fades in when it first shows,
+const END_FADE_MS = 800; // fades out ending as the last exhale does,
+const HIDE_FADE_MS = 400; // and quickly when the Hide button is pressed.
 
 // Held by the host, so a reload of this file does not lose the breath in progress.
-const run = atom({ plugin: "breathe", key: "run" } as const, null, { shape: "run-1" });
+const run = atom({ plugin: "breathe", key: "run" } as const, null, { shape: "run-2" });
 const isMuted = atom({ plugin: "breathe", key: "isMuted" } as const, false);
 
 // The words next to the animation. The design is in German.
@@ -53,9 +60,11 @@ function configFrom(options: PluginOptions) {
   const labels = options.language === "en" ? LABELS.en : LABELS.de;
   return {
     pattern,
-    delayMs: number("startAfterSeconds", 0) * 1000,
+    delayMs: number("startAfterSeconds", 3) * 1000,
+    countdownFrom: Math.max(0, Math.round(number("countdownSeconds", 3))),
     countdownMs: countdownMs(number("countdownSeconds", 3)),
     labels,
+    words: { ready: labels.ready, in: labels.in, holdIn: labels.holdIn, out: labels.out, holdOut: labels.holdOut },
     hint: `${labels.names[isPatternId(pattern.id) ? pattern.id : "box"]} · ${timing(pattern)}`,
   };
 }
@@ -67,10 +76,11 @@ export const register: Register = (on, options) => {
 
   // Held by this load of the module: a reload drops the timer with the old module.
   const ticker: Ticker = {};
-  // The desktop's orb, one picture per breathing run: it animates itself, so every redraw
-  // sends the same source and the surface can keep the picture it has. A reload draws it
-  // afresh, in step with the breath.
-  let orb: { startedAt: number; source: string } | undefined;
+  // The desktop's picture, one per breathing run: it animates itself, so every redraw sends the
+  // same source and the surface can keep the picture it has. It is drawn again only when the
+  // run changes in a way the picture must know (the turn ended, or Hide was pressed), and a
+  // reload draws it afresh, in step with the breath.
+  let orb: { startedAt: number; key: string; source: string } | undefined;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({ name: COMMAND, description: "Turn the breathing animation on or off", argumentHint: "[on|off]" });
@@ -115,6 +125,9 @@ export const register: Register = (on, options) => {
     const elapsed = now - current.startedAt;
     const isOver = current.finishAt !== null && now >= current.finishAt;
     if (elapsed < -cfg.countdownMs || isOver) return next(e);
+    const hasPicture = e.surface !== "terminal" && e.props.bodyColumns >= 36;
+    // Only the picture can fade; a line of text has nothing to fade, so it goes at once.
+    if (current.isHiding && !hasPicture) return next(e);
 
     const isCounting = elapsed < 0;
     const frame = frameAt(cfg.pattern, Math.max(0, elapsed));
@@ -123,7 +136,8 @@ export const register: Register = (on, options) => {
       : { label: cfg.labels[frame.kind], color: COLOR[frame.kind], fill: frame.fill, number: frame.secondsLeft };
     const hint = current.finishAt === null ? cfg.hint : cfg.labels.done;
     const { Box, Text, Button } = $.ui.resolve(e);
-    const hideButton = <Button key="hide" label={cfg.labels.hide} plain dimColor onPress={() => dismiss($)} />;
+    // On the desktop `role="dismiss"` is the app's own close control, named by the label.
+    const hideButton = <Button key="hide" label={cfg.labels.hide} plain dimColor role="dismiss" onPress={() => dismiss($, hasPicture)} />;
 
     // The one-line version: the phase, a bar that fills and empties with the breath, the seconds left
     // (during the countdown: the number, over an empty bar).
@@ -146,31 +160,44 @@ export const register: Register = (on, options) => {
     );
 
     let mine: JSX.Element;
-    if (e.surface === "terminal" || e.props.bodyColumns < 36) {
+    if (!hasPicture) {
       // The terminal gets words and a bar; so does a desktop band too narrow for the picture.
       mine = oneLine();
     } else {
       const { Svg } = $.ui.resolve(e);
-      if (orb === undefined || orb.startedAt !== current.startedAt) {
-        orb = { startedAt: current.startedAt, source: breathingSvg(cfg.pattern, elapsed, ORB_PIXELS) };
+      const key = `${current.startedAt}:${current.finishAt}:${current.isHiding}`;
+      if (orb === undefined || orb.key !== key) {
+        // It fades in the first time a run shows it, not again when it is drawn anew.
+        const isFirst = orb === undefined || orb.startedAt !== current.startedAt;
+        let fadeOut: { inMs: number; ms: number } | undefined;
+        if (current.finishAt !== null) {
+          const left = Math.max(1, current.finishAt - now);
+          const ms = Math.min(current.isHiding ? HIDE_FADE_MS : END_FADE_MS, left);
+          fadeOut = { inMs: left - ms, ms };
+        }
+        const source = breathingSvg({
+          pattern: cfg.pattern,
+          words: cfg.words,
+          elapsedMs: elapsed,
+          countdownFrom: cfg.countdownFrom,
+          shown: ORB_PIXELS,
+          fadeInMs: isFirst ? FADE_IN_MS : 0,
+          ...(fadeOut ? { fadeOut } : {}),
+        });
+        orb = { startedAt: current.startedAt, key, source };
       }
+      const isFinishing = current.finishAt !== null && !current.isHiding;
       mine = (
         <Box flexDirection="row" alignItems="center" columnGap={3} paddingX={1}>
-          {/* The words beside it change; the picture and its alt stay, so a redraw does not replace it. */}
+          {/* The orb and the phase's word are one picture that moves by itself; a redraw leaves it be. */}
           <Svg source={orb.source} alt={cfg.labels.orb} isInteractive />
-          <Box flexDirection="column" flexGrow={1}>
-            <Text size="title" weight="semibold">
-              {shown.label}
-            </Text>
-            {isCounting ? (
-              <Text color={shown.color} size="heading" weight="semibold" tabular>{`${shown.number}`}</Text>
-            ) : (
-              <Text color={shown.color} tabular>{`${shown.number} s`}</Text>
-            )}
-            <Text dimColor size="footnote">
-              {hint}
-            </Text>
-          </Box>
+          {isFinishing ? (
+            <Box flexGrow={1}>
+              <Text dimColor size="footnote">
+                {cfg.labels.done}
+              </Text>
+            </Box>
+          ) : null}
           {hideButton}
         </Box>
       );
@@ -188,10 +215,15 @@ export const register: Register = (on, options) => {
   });
 };
 
-// The Hide button: the breath is dropped, so the band goes and the timer stops with the next
-// tick. The next turn begins a new one; /breathe off is for good.
-async function dismiss($: EngineInterface) {
-  await update($, run, () => null);
+// The Hide button: the breath is dropped and the band goes, the timer stopping with the next
+// tick. A picture fades out first (the run lasts a moment more, `isHiding`); a line of text goes
+// at once. The next turn begins a new breath; /breathe off is for good.
+async function dismiss($: EngineInterface, hasPicture: boolean) {
+  const now = await $.clock.now();
+  await update($, run, (current) => {
+    if (current === null || !hasPicture) return null;
+    return current.isHiding ? current : { startedAt: current.startedAt, finishAt: now + HIDE_FADE_MS, isHiding: true };
+  });
 }
 
 // A turn begins: the wait (if set), the countdown, then the first breath. A breath that is
@@ -200,9 +232,9 @@ async function begin($: EngineInterface, ticker: Ticker, cfg: Config) {
   if (await read($, isMuted)) return;
   const now = await $.clock.now();
   await update($, run, (current) =>
-    current !== null && (current.finishAt === null || current.finishAt > now)
-      ? { startedAt: current.startedAt, finishAt: null }
-      : { startedAt: now + cfg.delayMs + cfg.countdownMs, finishAt: null },
+    current !== null && !current.isHiding && (current.finishAt === null || current.finishAt > now)
+      ? { startedAt: current.startedAt, finishAt: null, isHiding: false }
+      : { startedAt: now + cfg.delayMs + cfg.countdownMs, finishAt: null, isHiding: false },
   );
   startTicking($, ticker);
 }
@@ -215,7 +247,7 @@ async function finish($: EngineInterface, cfg: Config) {
     if (current === null || current.finishAt !== null) return current;
     if (now < current.startedAt) return null;
     const finishAt = restAt(cfg.pattern, current.startedAt, now);
-    return finishAt <= now ? null : { startedAt: current.startedAt, finishAt };
+    return finishAt <= now ? null : { startedAt: current.startedAt, finishAt, isHiding: false };
   });
 }
 

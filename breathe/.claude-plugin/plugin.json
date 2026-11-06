@@ -1,6 +1,6 @@
 {
   "name": "breathe",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A breathing guide while Claude works: box breathing (or an even or calm pattern) as words and a bar above the prompt in the terminal, and an aurora orb that expands and contracts in Claude Desktop. When the turn ends it finishes the breath you are in.",
   "author": { "name": "Sönke" },
   "types": "./types/index.d.ts",
@@ -23,8 +23,8 @@
     "startAfterSeconds": {
       "type": "number",
       "title": "Show after (seconds)",
-      "description": "Wait this long into a turn before the animation appears, so a quick answer does not start a whole breath. 0 shows it right away.",
-      "default": 0,
+      "description": "Wait this long into a turn before the animation (its countdown first) appears, so a quick answer does not call up a breathing exercise. 0 shows it right away.",
+      "default": 3,
       "min": 0
     },
     "countdownSeconds": {

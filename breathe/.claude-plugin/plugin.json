@@ -1,14 +1,14 @@
 {
   "name": "breathe",
-  "version": "0.3.0",
-  "description": "A breathing guide while Claude works: box breathing (or an even or calm pattern) as words and a bar above the prompt in the terminal, and an aurora orb that expands and contracts in Claude Desktop. When the turn ends it finishes the breath you are in.",
+  "version": "0.4.0",
+  "description": "A breathing guide while Claude works: box breathing (or an even or calm pattern) as words and a bar above the prompt in the terminal, and an aurora orb that expands and contracts in Claude Desktop. When the turn ends it finishes the breath you are in. It steps aside for Claude's questions, and can say each phase aloud.",
   "author": { "name": "Sönke" },
   "types": "./types/index.d.ts",
   "userConfig": {
     "pattern": {
       "type": "string",
       "title": "Pattern",
-      "description": "box: breathe in, hold, breathe out, hold. even: breathe in and out, no holds. calm: breathe in, then out for 1.5 times as long, no holds.",
+      "description": "box: breathe in, hold, breathe out, hold. even: breathe in and out, no holds. calm: breathe in, then out for 1.5 times as long, no holds. /breathe box, even or calm picks one for the session.",
       "default": "box",
       "options": ["box", "even", "calm"]
     },
@@ -35,10 +35,30 @@
       "min": 0,
       "max": 10
     },
+    "motion": {
+      "type": "string",
+      "title": "Motion",
+      "description": "auto: the orb grows and shrinks, unless your system asks for less motion. reduced: never, two still orbs fade into each other instead.",
+      "default": "auto",
+      "options": ["auto", "reduced"]
+    },
+    "theme": {
+      "type": "string",
+      "title": "Desktop theme",
+      "description": "Which theme Claude Desktop is set to, for the color of the word beside the orb. auto is a grey that reads on both, a little dim.",
+      "default": "auto",
+      "options": ["auto", "dark", "light"]
+    },
+    "speak": {
+      "type": "boolean",
+      "title": "Speak the phases",
+      "description": "Say each phase aloud (Einatmen, Halten, Ausatmen) with the system voice, on the machine where the session runs. macOS only. Off by default.",
+      "default": false
+    },
     "language": {
       "type": "string",
       "title": "Language",
-      "description": "Language of the labels next to the animation.",
+      "description": "Language of the labels next to the animation, and of the spoken words.",
       "default": "de",
       "options": ["de", "en"]
     }

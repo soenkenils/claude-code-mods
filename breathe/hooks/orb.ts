@@ -96,10 +96,14 @@ const TEXT_X = SIZE + 12; // where they start, in drawing units
 const FONT = 42; // their size in drawing units: about 22 px when the picture is 84 px high
 const CHAR = 0.6; // an average character's width, in em, to size the picture
 // What colour is right is not known in here: the picture cannot see the app's theme, and the
-// OS's setting is not always the app's. This grey reads on a dark ground (about 4.4 to 1) and
-// on a light one (about 3.3 to 1), which is enough for large type.
-const WORD_FILL = "#8A8985";
+// OS's setting is not always the app's. By default a grey that reads on a dark ground (about
+// 4.4 to 1) and on a light one (about 3.3 to 1), which is enough for large type. A person who
+// says which theme the app has gets a colour made for it (about 10 to 1 and 8 to 1).
+export type Theme = "auto" | "dark" | "light";
+export const WORD_FILLS: Record<Theme, string> = { auto: "#8A8985", dark: "#DAD8D2", light: "#4A4944" };
 const CROSS = 150; // ms: a word fades out and the next in across this long, each side of a change
+
+export type Motion = "auto" | "reduced";
 
 export type Words = { ready: string; in: string; holdIn: string; out: string; holdOut: string };
 
@@ -115,6 +119,11 @@ export type Picture = {
   shown: number;
   // The picture fades in over this long when it first shows. 0 or absent: it is there at once.
   fadeInMs?: number;
+  // `reduced` draws no motion at all: two still orbs cross-fade, as for a person whose system
+  // asks for less. `auto` (the default) moves the orb and leaves it to the system's setting.
+  motion?: Motion;
+  // Which theme the app has, for the words' colour; `auto` (the default) is a grey for either.
+  theme?: Theme;
   // And fades out over `ms`, starting `inMs` after it first shows.
   fadeOut?: { inMs: number; ms: number };
 };
@@ -168,8 +177,9 @@ function stillOrb(s: Scene, clipId: string, attrs = "", inner = "") {
 // SMIL (the desktop's interactive Svg frame). On no ground at all: the picture is transparent,
 // so the app's own background shows through (the halo is a faint glow on any theme).
 //
-// For a person who asks their system for less motion, the orb does not grow and shrink: two
-// still orbs, a small and a large, fade into each other at the same pace.
+// For a person who asks their system for less motion (or says so in the settings: `reduced`),
+// the orb does not grow and shrink: two still orbs, a small and a large, fade into each other at
+// the same pace.
 export function breathingSvg(o: Picture): string {
   const { pattern, words, elapsedMs } = o;
   const total = cycleMs(pattern);
@@ -230,8 +240,10 @@ export function breathingSvg(o: Picture): string {
     `</g>`,
   ].join("");
 
+  const isReduced = o.motion === "reduced";
   const still = [
-    `<g class="still" display="none">`,
+    // `display` is also an attribute here, so a surface that drops the style block still hides them.
+    `<g class="still"${isReduced ? "" : ' display="none"'}>`,
     stillOrb(rest, "orb-rest"),
     stillOrb(open, "orb-open", `opacity="0"`, breathe("opacity", 0, 1)),
     `</g>`,
@@ -241,7 +253,7 @@ export function breathingSvg(o: Picture): string {
   // lit for its second, ending as the first breath begins.
   const text = (content: string, animation: string) =>
     `<text x="${TEXT_X}" y="${num(MID + FONT * 0.35, 1)}" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" ` +
-    `font-size="${FONT}" font-weight="600" letter-spacing="-0.4" fill="${WORD_FILL}" opacity="0">${esc(content)}${animation}</text>`;
+    `font-size="${FONT}" font-weight="600" letter-spacing="-0.4" fill="${WORD_FILLS[o.theme ?? "auto"]}" opacity="0">${esc(content)}${animation}</text>`;
   const phaseWords = pattern.phases.map((phase, i) => {
     const { keyTimes, values: levels } = wordLevels(pattern, i);
     // Before the first breath an animation has not begun, so its word would sit at 0 and then jump
@@ -286,10 +298,9 @@ export function breathingSvg(o: Picture): string {
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${SIZE}" width="${num(width * scale, 1)}" height="${o.shown}">`,
-    // `display` on the still orbs is also an attribute, so a surface that drops this style block still hides them.
-    `<style>@media (prefers-reduced-motion: reduce){.move{display:none}.still{display:inline}}</style>`,
+    isReduced ? "" : `<style>@media (prefers-reduced-motion: reduce){.move{display:none}.still{display:inline}}</style>`,
     `<defs>${DEFS}</defs>`,
-    `<g>${fadeOut}<g>${fadeIn}${moving}${still}${phaseWords.join("")}${countdownWords.join("")}</g></g>`,
+    `<g>${fadeOut}<g>${fadeIn}${isReduced ? "" : moving}${still}${phaseWords.join("")}${countdownWords.join("")}</g></g>`,
     `</svg>`,
   ].join("");
 }

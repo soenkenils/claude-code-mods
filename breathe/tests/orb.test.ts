@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { breathingSvg, scene } from "../hooks/orb";
+import { WORD_FILLS, breathingSvg, scene } from "../hooks/orb";
 import type { Picture, Words } from "../hooks/orb";
 import { box, patternOf } from "../hooks/pacer";
 
@@ -318,5 +318,63 @@ describe("for a person who wants less motion", () => {
     expect(wordsIn(svg)).toHaveLength(4);
     // The words are outside the groups that the style hides.
     expect(svg.indexOf("<text ")).toBeGreaterThan(svg.indexOf('class="still"'));
+  });
+});
+
+describe("motion and theme", () => {
+  test("reduced motion draws the two still orbs and no moving one", () => {
+    const svg = breathingSvg(picture({ motion: "reduced" }));
+    expect(svg).not.toContain('class="move"');
+    expect(svg).not.toContain("<animateTransform");
+    expect(svg).not.toContain("<style>");
+    expect(svg).toContain('<g class="still">');
+    expect(svg).not.toContain("display=\"none\"");
+    // The two orbs, drawn one over the other, the open one fading in with the breath.
+    expect(svg).toContain('id="orb-rest"');
+    expect(svg).toMatch(/<g opacity="0"><animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.25;0.5;0.75;1"/);
+    expect(svg.match(/<circle /g)).toHaveLength(8 + 8); // two orbs of the same eight circles each
+    expect(svg.length).toBeLessThan(breathingSvg(picture()).length);
+  });
+
+  test("reduced motion keeps the words, the countdown and the fades", () => {
+    const svg = breathingSvg(picture({ motion: "reduced", countdownFrom: 3, elapsedMs: -4000, fadeInMs: 800, fadeOut: { inMs: 5000, ms: 800 } }));
+    expect(wordsIn(svg).map((w) => w.text.replace(/\s+/g, " "))).toEqual([
+      "Einatmen", "Halten", "Ausatmen", "Halten", "Mach dich bereit 3", "Mach dich bereit 2", "Mach dich bereit 1", "Mach dich bereit 0",
+    ]);
+    expect(svg.match(/fill="freeze"/g)).toHaveLength(2);
+  });
+
+  test("auto leaves it to the system: the moving orb, and the still ones hidden", () => {
+    for (const motion of [undefined, "auto" as const]) {
+      const svg = breathingSvg(picture(motion ? { motion } : {}));
+      expect(svg).toContain('class="move"');
+      expect(svg).toContain('class="still" display="none"');
+      expect(svg).toContain("prefers-reduced-motion");
+    }
+  });
+
+  // WCAG's contrast ratio of two colors.
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+  };
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
+  };
+  const DARK_GROUND = "#262624";
+  const LIGHT_GROUND = "#FAF9F5";
+
+  test("a theme gives the words a color that reads on its ground", () => {
+    expect(contrast(WORD_FILLS.dark, DARK_GROUND)).toBeGreaterThan(7);
+    expect(contrast(WORD_FILLS.light, LIGHT_GROUND)).toBeGreaterThan(7);
+    expect(breathingSvg(picture({ theme: "dark" }))).toContain(`fill="${WORD_FILLS.dark}"`);
+    expect(breathingSvg(picture({ theme: "light" }))).toContain(`fill="${WORD_FILLS.light}"`);
+  });
+
+  test("auto is a grey that reads, if dimly, on either", () => {
+    expect(contrast(WORD_FILLS.auto, DARK_GROUND)).toBeGreaterThan(4);
+    expect(contrast(WORD_FILLS.auto, LIGHT_GROUND)).toBeGreaterThan(3);
+    expect(breathingSvg(picture())).toContain(`fill="${WORD_FILLS.auto}"`);
   });
 });

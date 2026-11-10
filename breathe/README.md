@@ -1,6 +1,6 @@
 # breathe
 
-A breathing exercise to look at while Claude works. A band above the prompt goes through box breathing: breathe in, hold, breathe out, hold, 4 seconds each. Two gentler patterns leave the holds out (see [Patterns](#patterns)). In the terminal it is one line, the phase in words and a bar that fills as you breathe in and empties as you breathe out. In Claude Desktop it is an aurora orb that expands and contracts, with the phase in words beside it. The band stays out of the way: it appears only after a few seconds into a turn, fades in and out, and has a close button. When Claude is done it does not vanish. It finishes the breath you are in and goes at the end of the exhale.
+A breathing exercise to look at while Claude works. A band above the prompt goes through box breathing: breathe in, hold, breathe out, hold, 4 seconds each. Two gentler patterns leave the holds out (see [Patterns](#patterns)). In the terminal it is one line, the phase in words and a bar that fills as you breathe in and empties as you breathe out. In Claude Desktop it is an aurora orb that expands and contracts, with the phase in words beside it. The band stays out of the way: it appears only after a few seconds into a turn, fades in and out, and has a close button. When Claude is done it does not vanish. It finishes the breath you are in and goes at the end of the exhale. It steps aside while Claude asks you a question, and can say each phase aloud.
 
 The orb follows a design made for this mod: an aurora ball (violet on top, then aqua, green and a clay fringe) with a halo and a bright core. It has no background of its own, so the app's background shows through. It grows and brightens on the inhale and shrinks and dims on the exhale, eased like a real breath.
 
@@ -27,11 +27,13 @@ A turn does not show the band at once. A quick answer should not call up a breat
 - in the hold after the exhale there is nothing left to finish, so it goes at once;
 - if you send the next prompt while it winds down, the breath carries on without starting over.
 
+While Claude asks you a question (the `AskUserQuestion` tool) the band steps aside, so it does not sit between you and the answer. The breath goes on behind it. When you have answered, the band comes back in the phase the clock has reached, and in Desktop it fades in again. A permission prompt is not a question in this sense: nothing in the plugin API tells it apart from a tool that is running, so the band stays.
+
 Only the main conversation's turns count; a subagent working inside a turn does not start or end anything.
 
 ## Patterns
 
-The `pattern` setting picks one. `phaseSeconds` sets each phase's length.
+The `pattern` setting picks one. `phaseSeconds` sets each phase's length. `/breathe box`, `/breathe even` or `/breathe calm` picks one for the rest of the session, from the next turn on: a breath under way finishes in the pattern it began with.
 
 | `pattern` | Phases | At 4 s | For |
 | --- | --- | --- | --- |
@@ -52,7 +54,7 @@ Another mod's band above the prompt (the token forecast, a heads-up) is kept and
 ## Use
 
 - The **Ausblenden** button (`Hide` in English) takes the band away for the rest of the turn, for when you do not want to breathe along just now. In Claude Desktop it is the app's own close control at the right edge of the band, with a hit area larger than the symbol. In the terminal it is a plain text button; click it, or where the terminal does not pass clicks on, focus the band with ctrl+x tab and press Enter. The next turn brings the band back.
-- `/breathe` says whether it is on. `/breathe off` mutes it for the session, `/breathe on` brings it back with the next turn.
+- `/breathe` says whether it is on and which pattern it breathes. `/breathe off` mutes it for the session, `/breathe on` brings it back with the next turn, `/breathe box|even|calm` picks the pattern (see [Patterns](#patterns)).
 - The band's own collapse (`[-]`, ctrl+x ctrl+a) hides it for the moment.
 
 ## Settings
@@ -65,13 +67,18 @@ Fields in `/config` (or `pluginConfigs` in settings).
 | `phaseSeconds` | 4 | length of each phase (in `calm` the breath out is 1.5 times this), 2 to 10 |
 | `countdownSeconds` | 3 | count down from this number to 0 before the first breath, a second for each number (3 shows 3, 2, 1, 0); 0 turns the countdown off, 0 to 10 |
 | `startAfterSeconds` | 3 | wait this long into a turn before the band (the countdown first) appears, so a quick answer shows nothing; 0 shows it right away; a turn that ends before the first breath begins goes at once |
-| `language` | `de` | the words in the band, `de` or `en` |
+| `motion` | `auto` | `auto`: the orb grows and shrinks, unless the system asks for less motion. `reduced`: never, two still orbs fade into each other instead |
+| `theme` | `auto` | which theme Claude Desktop is set to, `dark` or `light`, for the color of the word beside the orb. `auto` is a grey that reads on both, a little dim |
+| `speak` | off | say each phase aloud (`Einatmen`, `Halten`, `Ausatmen`) with the system voice, on the machine where the session runs. macOS only |
+| `language` | `de` | the words in the band and the spoken ones, `de` or `en` |
 
 ## Limits
 
-- A timer asks for a redraw about ten times a second (`$.ui.invalidate`). In the terminal that moves the bar. In the desktop app the picture does not change between redraws, so the app can keep it running; it is drawn anew only when the turn ends or Hide is pressed, in step with the breath. Whether the app keeps it, or reloads it on every redraw, has not been watched on a real surface yet. A reload would make the orb jump.
-- The word's colour in the Desktop picture is a fixed grey that reads on a dark and on a light ground (about 4.4 to 1 and 3.3 to 1). The picture cannot see the app's theme, so it cannot follow it.
-- Reduced motion is the system setting as the SVG sees it, and the app's own setting may differ. Both the check and the rest of the picture have been verified in Chromium only.
+- A timer asks for a redraw ten times a second (`$.ui.invalidate`) while a line of text is drawn: the terminal, or a Desktop window too narrow for the picture. For the Desktop picture, which moves by itself, it asks about once a second, and at the moment the band is due. The picture is the same one on every redraw, so the app can keep it running; it is drawn anew when the turn ends, Hide is pressed, the band steps aside and comes back, or it has not been drawn for 3 s, in step with the breath. Whether the app keeps the picture, or reloads it on every redraw, has not been watched on a real surface yet. A reload would make the orb jump.
+- The band is a site above the prompt, which the plugin API raises on the terminal and in Claude Desktop only. The mobile app and VS Code do not draw it, so `breathe` shows nothing there. A mobile version would need another site, for instance the backdrop behind the conversation, with no button on it.
+- `speak` uses the system voice (`say` on macOS). Elsewhere the call is refused and the band goes on without sound. Each word is said when the clock enters its phase, up to a tenth of a second late.
+- The word's color in the Desktop picture is a fixed grey that reads on a dark and on a light ground (about 4.4 to 1 and 3.3 to 1). The picture cannot see the app's theme, so it cannot follow it. The `theme` setting picks a color made for one (about 10 to 1 on dark, 8 to 1 on light).
+- Reduced motion by `auto` is the system setting as the SVG sees it, and the app's own setting may differ; `motion: reduced` makes it certain. The picture has been checked in Chromium only.
 
 ## Development
 
@@ -80,4 +87,4 @@ claude plugin test breathe
 claude plugin validate breathe
 ```
 
-The breathing itself (`hooks/pacer.ts`) and the picture's drawing (`hooks/orb.ts`: orb, words, countdown, fades, reduced motion) are plain functions with no engine in them, so they are tested directly; `hooks/breathe.tsx` holds the hooks and the layout. Because the desktop's words are inside the SVG, the tests for what the band says each second run on the terminal, and the SVG tests read the animation's key times.
+The breathing itself (`hooks/pacer.ts`) and the picture's drawing (`hooks/orb.ts`: orb, words, countdown, fades, reduced motion) are plain functions with no engine in them, so they are tested directly; `hooks/breathe.tsx` holds the hooks and the layout. Because the desktop's words are inside the SVG, the tests for what the band says each second run on the terminal, and the SVG tests read the animation's key times. The tests count draws to check how often the band is redrawn, and stand in for the voice (`audio.speak`) and for Claude's question (a `tool.call` that waits).

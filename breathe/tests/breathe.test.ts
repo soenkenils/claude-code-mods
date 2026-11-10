@@ -6,8 +6,8 @@ type Surface = (typeof SURFACES)[number];
 
 // The band waits `startAfterSeconds` (3 by default) and then counts down before the breath. Most
 // tests are about the breath itself, so they skip both; the wait and the countdown have tests of their own.
-const noWait = (options: Record<string, number | string> = {}) => ({ options: { startAfterSeconds: 0, ...options } });
-const noCountdown = (options: Record<string, number | string> = {}) => noWait({ countdownSeconds: 0, ...options });
+const noWait = (options: Record<string, number | string | boolean> = {}) => ({ options: { startAfterSeconds: 0, ...options } });
+const noCountdown = (options: Record<string, number | string | boolean> = {}) => noWait({ countdownSeconds: 0, ...options });
 
 const DE = { in: "Einatmen", hold: "Halten", out: "Ausatmen" };
 const EN = { in: "Breathe in", hold: "Hold", out: "Breathe out" };
@@ -214,7 +214,7 @@ for (const surface of SURFACES) {
       expect((await slash($)).text).toContain("off");
 
       expect((await slash($, "on")).text).toContain("on");
-      expect((await slash($)).text).toBe("Breathe is on.");
+      expect((await slash($)).text).toContain("Breathe is on.");
       await endTurn($);
       await beginTurn($);
       await isShown(await band($, surface));
@@ -223,7 +223,7 @@ for (const surface of SURFACES) {
     test("explains a command it does not know", noCountdown(), async ($, on) => {
       core(on);
       await start($);
-      expect((await slash($, "sideways")).text).toBe("Usage: /breathe [on|off]");
+      expect((await slash($, "sideways")).text).toBe("Usage: /breathe [on|off|box|even|calm]");
     });
 
     describe("with settings", () => {
@@ -836,7 +836,7 @@ describe("the Hide button", () => {
         const ui = await band($, surface);
         await ui.press({ key: "hide" });
         await ui.unmount();
-        expect((await slash($)).text).toBe("Breathe is on.");
+        expect((await slash($)).text).toContain("Breathe is on.");
       });
 
       test("leaves another mod's band where it is", noCountdown(), async ($, on) => {
@@ -1053,22 +1053,24 @@ describe("on the desktop", () => {
     const clock = core(on);
     await start($);
     await beginTurn($);
-    await sourceNow($);
+    const ui = await band($, "desktop"); // on screen all along, so it is drawn about once a second
     await clock.advance(11_500);
     await endTurn($); // 0.5 s to go
-    expect(fadesOf(await sourceNow($))).toEqual([["1", "0", "0.5", "0"]]);
+    expect(fadesOf(await sourceOf(ui))).toEqual([["1", "0", "0.5", "0"]]);
+    await ui.unmount();
   });
 
   test("is drawn anew when the turn ends, in step with the breath, and does not fade in again", noCountdown(), async ($, on) => {
     const clock = core(on);
     await start($);
     await beginTurn($);
-    await sourceNow($);
+    const ui = await band($, "desktop");
     await clock.advance(3000);
     await endTurn($);
-    const source = await sourceNow($);
+    const source = await sourceOf(ui);
     expect(breathBegin(source)).toBe("-3");
     expect(fadesOf(source).map(([from]) => from)).toEqual(["1"]);
+    await ui.unmount();
   });
 
   test("shows the note that Claude is done only while it finishes", noCountdown(), async ($, on) => {
@@ -1101,5 +1103,424 @@ describe("on the desktop", () => {
     expect(await ui.findAll({ type: "Svg" })).toEqual([]);
     expect(await ui.find({ type: "Text", text: /Einatmen/ })).toBeDefined();
     await ui.unmount();
+  });
+});
+
+describe("/breathe with a pattern", () => {
+  const hint = async ($: Engine) => words($, "terminal");
+
+  test("picks the pattern for the next turns, and says so", noCountdown(), async ($, on) => {
+    core(on);
+    await start($);
+    const answer = (await slash($, "calm")).text;
+    expect(answer).toContain("Ruhiges Atmen · 4-6");
+    expect(answer).toContain("from the next turn");
+    await beginTurn($);
+    expect(await hint($)).toContain("Ruhiges Atmen · 4-6");
+  });
+
+  test("is drawn by the desktop's picture too: a cycle of 10 s, not 16", noCountdown(), async ($, on) => {
+    core(on);
+    await start($);
+    await slash($, "calm");
+    await beginTurn($);
+    const source = await sourceNow($);
+    expect(source).toContain('dur="10s"');
+    expect(source).not.toContain('dur="16s"');
+  });
+
+  test("is not taken up by a breath that is under way: that one finishes as it began", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(1000);
+    await slash($, "even");
+    expect(await hint($)).toContain("Box Breathing · 4-4-4-4");
+    await clock.advance(5000);
+    expect(await hint($)).toContain("Box Breathing");
+    // It is the next run that breathes it.
+    await endTurn($);
+    await clock.advance(20_000);
+    await beginTurn($);
+    expect(await hint($)).toContain("Gleichmäßiges Atmen · 4-4");
+  });
+
+  test("goes on to the turn after next, and /breathe says which it is", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    await start($);
+    expect((await slash($)).text).toBe("Breathe is on. Pattern: Box Breathing · 4-4-4-4.");
+    await slash($, "calm");
+    expect((await slash($)).text).toBe("Breathe is on. Pattern: Ruhiges Atmen · 4-6.");
+    for (let turn = 0; turn < 2; turn++) {
+      await beginTurn($);
+      expect(await hint($)).toContain("Ruhiges Atmen");
+      await endTurn($);
+      await clock.advance(20_000);
+    }
+  });
+
+  test("takes the phase length from phaseSeconds, and the labels' language", noCountdown({ phaseSeconds: 2, language: "en" }), async ($, on) => {
+    core(on);
+    await start($);
+    expect((await slash($, "EVEN")).text).toContain("Even Breathing · 2-2");
+    await beginTurn($);
+    expect(await hint($)).toContain("Even Breathing · 2-2");
+  });
+
+  test("finishes a run in its own pattern: a calm breath ends at the end of its long exhale", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    await start($);
+    await slash($, "calm");
+    await beginTurn($);
+    await clock.advance(1000);
+    await endTurn($);
+    await clock.advance(8900);
+    await isShown(await band($, "desktop"));
+    await clock.advance(200);
+    await isEngine(await band($, "desktop"));
+  });
+
+  test("does not unmute it", noCountdown(), async ($, on) => {
+    core(on);
+    await start($);
+    await slash($, "off");
+    expect((await slash($, "calm")).text).toContain("Breathe is still off");
+    await beginTurn($);
+    await isEngine(await band($, "terminal"));
+  });
+
+  test("keeps the setting's pattern until one is picked", noCountdown({ pattern: "calm" }), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    expect(await hint($)).toContain("Ruhiges Atmen · 4-6");
+  });
+});
+
+describe("while Claude asks a question", () => {
+  // A question (the AskUserQuestion tool) is a call that waits for the person's answer.
+  function question(on: On) {
+    let answer: () => void = () => {};
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    on("tool.call", async () => {
+      await answered;
+      return { result: {}, text: "A" } as never;
+    });
+    return () => answer();
+  }
+  const ask = ($: Engine, agentId?: string) => $.tool.call({ tool: "AskUserQuestion", questions: [], ...(agentId ? { agentId } : {}) });
+
+  for (const surface of SURFACES) {
+    test(`the band steps aside until it is answered, on ${surface}`, noCountdown(), async ($, on) => {
+      const clock = core(on);
+      const answer = question(on);
+      await start($);
+      await beginTurn($);
+      const ui = await band($, surface);
+      await isShown(ui);
+      const asked = ask($);
+      await clock.advance(500);
+      await isEngine(ui);
+      await clock.advance(5000);
+      await isEngine(ui);
+      answer();
+      await asked;
+      await isShown(ui);
+      await ui.unmount();
+    });
+  }
+
+  test("and the breath goes on behind it: it is in the phase the clock says when it is back", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    const answer = question(on);
+    await start($);
+    await beginTurn($);
+    const asked = ask($);
+    await clock.advance(9000); // asked at 0 s, answered at 9 s: breathing out
+    answer();
+    await asked;
+    expect(await words($, "terminal")).toContain(DE.out);
+  });
+
+  test("and the desktop's picture is drawn afresh, in step with the breath, and fades in again", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    const answer = question(on);
+    await start($);
+    await beginTurn($);
+    expect(breathBegin(await sourceNow($))).toBe("0");
+    const asked = ask($);
+    await clock.advance(9000);
+    answer();
+    await asked;
+    const source = await sourceNow($);
+    expect(breathBegin(source)).toBe("-9");
+    expect(fadesOf(source)).toEqual([["0", "1", "0.8", "0"]]);
+  });
+
+  test("is back when the call fails", noCountdown(), async ($, on) => {
+    core(on);
+    on("tool.call", async () => {
+      throw new Error("no dialog");
+    });
+    await start($);
+    await beginTurn($);
+    await ask($).catch(() => undefined);
+    await isShown(await band($, "terminal"));
+  });
+
+  test("is not for a subagent's question", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    question(on);
+    await start($);
+    await beginTurn($);
+    void ask($, "agent-1");
+    await clock.advance(500);
+    await isShown(await band($, "terminal"));
+  });
+
+  test("does not touch other tools' calls", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    on("tool.call", async () => ({ result: {}, text: "ok" }) as never);
+    await start($);
+    await beginTurn($);
+    await $.tool.call({ tool: "Bash", command: "ls" });
+    await clock.advance(500);
+    await isShown(await band($, "terminal"));
+  });
+
+  test("a survey does the same: the band is drawn afresh when it is over", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    await start($);
+    await beginTurn($);
+    expect(breathBegin(await sourceNow($))).toBe("0");
+    await clock.advance(2000);
+    await isEngine(await band($, "desktop", { hasSurvey: true }));
+    await clock.advance(1000);
+    const source = await sourceNow($);
+    expect(breathBegin(source)).toBe("-3");
+    expect(fadesOf(source)).toEqual([["0", "1", "0.8", "0"]]);
+  });
+});
+
+describe("how often the band is drawn", () => {
+  // Every draw of the band hears `below`: count them.
+  function counting(on: On) {
+    const drawn = { count: 0 };
+    return { drawn, clock: core(on, () => ((drawn.count += 1), ENGINE)) };
+  }
+
+  test("is ten times a second for a line of text", noCountdown(), async ($, on) => {
+    const { drawn, clock } = counting(on);
+    await start($);
+    await beginTurn($);
+    const ui = await band($, "terminal");
+    drawn.count = 0;
+    await clock.advance(5000);
+    expect(drawn.count).toBeGreaterThanOrEqual(45);
+    await ui.unmount();
+  });
+
+  test("is about once a second for the desktop's picture, which moves by itself", noCountdown(), async ($, on) => {
+    const { drawn, clock } = counting(on);
+    await start($);
+    await beginTurn($);
+    const ui = await band($, "desktop");
+    await clock.advance(500);
+    drawn.count = 0;
+    await clock.advance(5000);
+    expect(drawn.count).toBeGreaterThanOrEqual(3);
+    expect(drawn.count).toBeLessThanOrEqual(10);
+    // And the picture is the one it was.
+    await isShown(ui);
+    await ui.unmount();
+  });
+
+  test("goes back to ten times a second when a line of text is drawn", noCountdown(), async ($, on) => {
+    const { drawn, clock } = counting(on);
+    await start($);
+    await beginTurn($);
+    const picture = await band($, "desktop");
+    await clock.advance(3000);
+    // The window is made narrow: the band is a line of text now.
+    const narrow = await band($, "desktop", { bodyColumns: 30 });
+    await clock.advance(2000); // a draw within a second finds the line
+    drawn.count = 0;
+    await clock.advance(3000);
+    expect(drawn.count).toBeGreaterThanOrEqual(25);
+    await narrow.unmount();
+    await picture.unmount();
+  });
+
+  for (const after of [0, 300, 700]) {
+    test(`the band appears when it is due, with no wait for the next draw (${after} ms in)`, noWait({ startAfterSeconds: 2.5 }), async ($, on) => {
+      const clock = core(on);
+      await start($);
+      // A first run, to have drawn the picture once: from then on the draws are few.
+      await beginTurn($);
+      await clock.advance(6000);
+      await band($, "desktop").then((ui) => ui.unmount());
+      await endTurn($);
+      await clock.advance(20_000 + after);
+
+      await beginTurn($);
+      await clock.advance(2400);
+      await isEngine(await band($, "desktop"));
+      await clock.advance(200); // 2.6 s: the countdown has begun
+      const ui = await band($, "desktop");
+      await isShown(ui);
+      expect(await sourceOf(ui)).toContain("Mach dich bereit");
+      await ui.unmount();
+    });
+  }
+});
+
+describe("speaking the phases", () => {
+  function voice(on: On, fails = false) {
+    const said: string[] = [];
+    on("audio.speak", (_$, e) => {
+      said.push(e.text);
+      if (fails) throw new Error("no voice");
+      return { value: { via: "system" } } as never;
+    });
+    return said;
+  }
+
+  test("is off unless asked for", noCountdown(), async ($, on) => {
+    const clock = core(on);
+    const said = voice(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(20_000);
+    expect(said).toEqual([]);
+  });
+
+  test("says each phase once as it begins", noCountdown({ speak: true }), async ($, on) => {
+    const clock = core(on);
+    const said = voice(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(300);
+    expect(said).toEqual(["Einatmen"]);
+    await clock.advance(3700); // 4 s
+    await clock.advance(300);
+    expect(said).toEqual(["Einatmen", "Halten"]);
+    await clock.advance(12_000); // 16.3 s: a second cycle
+    expect(said).toEqual(["Einatmen", "Halten", "Ausatmen", "Halten", "Einatmen"]);
+  });
+
+  test("says the breath in only when the countdown is over", noWait({ speak: true }), async ($, on) => {
+    const clock = core(on);
+    const said = voice(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(3900);
+    expect(said).toEqual([]);
+    await clock.advance(400);
+    expect(said).toEqual(["Einatmen"]);
+  });
+
+  test("speaks the labels' language", noCountdown({ speak: true, language: "en" }), async ($, on) => {
+    const clock = core(on);
+    const said = voice(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(8300);
+    expect(said).toEqual(["Breathe in", "Hold", "Breathe out"]);
+  });
+
+  test("goes on through the wind-down and stops with the breath", noCountdown({ speak: true }), async ($, on) => {
+    const clock = core(on);
+    const said = voice(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(1000);
+    await endTurn($);
+    await clock.advance(11_000 + 3000); // past the end of the exhale at 12 s
+    expect(said).toEqual(["Einatmen", "Halten", "Ausatmen"]);
+  });
+
+  test("keeps quiet after Hide", noCountdown({ speak: true }), async ($, on) => {
+    const clock = core(on);
+    const said = voice(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(300);
+    const ui = await band($, "desktop");
+    await ui.press({ key: "hide" });
+    await clock.advance(20_000);
+    expect(said).toEqual(["Einatmen"]);
+    await ui.unmount();
+  });
+
+  test("keeps quiet while a question waits", noCountdown({ speak: true }), async ($, on) => {
+    const clock = core(on);
+    let answer: () => void = () => {};
+    const answered = new Promise<void>((resolve) => (answer = resolve));
+    on("tool.call", async () => {
+      await answered;
+      return { result: {}, text: "A" } as never;
+    });
+    const said = voice(on);
+    await start($);
+    await beginTurn($);
+    await clock.advance(300);
+    const asked = $.tool.call({ tool: "AskUserQuestion", questions: [] });
+    await clock.advance(9000);
+    expect(said).toEqual(["Einatmen"]);
+    answer();
+    await asked;
+  });
+
+  test("lets it be where there is no voice: the band goes on", noCountdown({ speak: true }), async ($, on) => {
+    const clock = core(on);
+    const said = voice(on, true);
+    await start($);
+    await beginTurn($);
+    await clock.advance(5000);
+    expect(said).toEqual(["Einatmen", "Halten"]);
+    expect(await words($, "terminal")).toContain(DE.hold);
+  });
+});
+
+describe("the desktop picture's settings", () => {
+  test("motion reduced draws no moving orb at all", noCountdown({ motion: "reduced" }), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    const source = await sourceNow($);
+    expect(source).not.toContain('class="move"');
+    expect(source).not.toContain("<animateTransform");
+    expect(source).not.toContain("<style>");
+    expect(source).toContain('<g class="still">');
+  });
+
+  test("motion auto leaves it to the system", noCountdown(), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    const source = await sourceNow($);
+    expect(source).toContain('class="move"');
+    expect(source).toContain('class="still" display="none"');
+  });
+
+  test("a theme gives the words a color made for it", noCountdown({ theme: "dark" }), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    expect(await sourceNow($)).toContain('fill="#DAD8D2"');
+  });
+
+  test("a light theme the other", noCountdown({ theme: "light" }), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    expect(await sourceNow($)).toContain('fill="#4A4944"');
+  });
+
+  test("and by default a grey for either", noCountdown(), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    expect(await sourceNow($)).toContain('fill="#8A8985"');
   });
 });

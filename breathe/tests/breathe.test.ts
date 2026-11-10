@@ -1009,12 +1009,12 @@ describe("on the desktop", () => {
     await ui.unmount();
   });
 
-  test("is compact: the picture is 84 px high, with no seconds and no pattern hint", noCountdown(), async ($, on) => {
+  test("is compact: the picture is 60 px high, with no seconds and no pattern hint", noCountdown(), async ($, on) => {
     core(on);
     await start($);
     await beginTurn($);
     const source = await sourceNow($);
-    expect(source).toContain('height="84"');
+    expect(source).toContain('height="60"');
     expect(await words($, "desktop")).not.toMatch(/Box Breathing|4-4-4-4| s\b/);
   });
 

@@ -93,7 +93,7 @@ const esc = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 // The words sit to the right of the orb, in the same picture, so they change in step with it.
 const TEXT_X = SIZE + 12; // where they start, in drawing units
-const FONT = 42; // their size in drawing units: about 22 px when the picture is 84 px high
+const FONT = 42; // their size in drawing units: about 16 px when the picture is 60 px high
 const CHAR = 0.6; // an average character's width, in em, to size the picture
 // What colour is right is not known in here: the picture cannot see the app's theme, and the
 // OS's setting is not always the app's. By default a grey that reads on a dark ground (about

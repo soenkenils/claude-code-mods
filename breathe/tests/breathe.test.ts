@@ -1009,13 +1009,65 @@ describe("on the desktop", () => {
     await ui.unmount();
   });
 
-  test("is compact: the picture is 60 px high, with no seconds and no pattern hint", noCountdown(), async ($, on) => {
+  test("is one line high: the picture is 24 px high, with no seconds and no pattern hint", noCountdown(), async ($, on) => {
     core(on);
     await start($);
     await beginTurn($);
     const source = await sourceNow($);
-    expect(source).toContain('height="60"');
+    expect(source).toContain('height="24"');
     expect(await words($, "desktop")).not.toMatch(/Box Breathing|4-4-4-4| s\b/);
+  });
+
+  // Claude Desktop gives a picture's frame with no size 300 by 150 px, whatever the markup says,
+  // and fits the picture into it: so the element says the size itself.
+  test("gives the element the picture's own size, so the app does not pick one", noCountdown(), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    const ui = await band($, "desktop");
+    const picture = await pictureOf(ui);
+    const source = String(picture?.props.source);
+    const own = { width: Number(/ width="([\d.]+)"/.exec(source)?.[1]), height: Number(/ height="([\d.]+)"/.exec(source)?.[1]) };
+    expect(own.height).toBe(24);
+    expect(own.width).toBeGreaterThan(24 * 4);
+    expect(picture?.props.height).toBe(own.height);
+    expect(picture?.props.width).toBe(own.width);
+    await ui.unmount();
+  });
+
+  test("keeps the frame's size through a run, so the band does not jump", noWait(), async ($, on) => {
+    const clock = core(on);
+    await start($);
+    await beginTurn($);
+    const ui = await band($, "desktop");
+    const size = async () => {
+      const props = (await pictureOf(ui))?.props;
+      return [props?.width, props?.height];
+    };
+    const counting = await size();
+    expect(counting[1]).toBe(24);
+    await clock.advance(6000); // the countdown is over, the breath is under way
+    expect(await size()).toEqual(counting);
+    await endTurn($);
+    expect(await size()).toEqual(counting);
+    await ui.unmount();
+  });
+
+  test("puts the close control at the far end of the band, as a cross named by its label", noCountdown(), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    const ui = await band($, "desktop");
+    const row = (await ui.drawn()) as { props?: unknown; children?: Array<{ type: string; props?: Record<string, unknown>; children?: unknown[] }> };
+    const cells = row.children?.[0]?.children as Array<{ type: string; props?: Record<string, unknown>; children?: unknown[] }> | undefined;
+    expect(cells?.map((c) => c.type)).toEqual(["Svg", "Box", "Button"]);
+    // The Box between them takes what is left of the row.
+    expect(cells?.[1]?.props?.flexGrow).toBe(1);
+    const button = await hide(ui);
+    expect(button?.props.label).toBe("Ausblenden");
+    expect(button?.props.role).toBe("dismiss");
+    expect(button?.text).toBe("✕");
+    await ui.unmount();
   });
 
   test("draws a new run's picture at the point of the breath it first shows in", noCountdown(), async ($, on) => {

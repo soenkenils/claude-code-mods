@@ -1,6 +1,6 @@
 import { describe, expect, test } from "claude-code/testing";
 
-import { WORD_FILLS, breathingSvg, scene } from "../hooks/orb";
+import { EXTENT, WORD_FILLS, breathingSvg, pictureSize, scene } from "../hooks/orb";
 import type { Picture, Words } from "../hooks/orb";
 import { box, patternOf } from "../hooks/pacer";
 
@@ -33,7 +33,7 @@ const picture = (changes: Partial<Picture> = {}): Picture => ({
   words: WORDS,
   elapsedMs: 0,
   countdownFrom: 0,
-  shown: 84,
+  shown: 24,
   ...changes,
 });
 
@@ -57,21 +57,60 @@ describe("the desktop's svg", () => {
     return { rest: Number(m?.[1]), values: (m?.[2] ?? "").split(";").map(Number) };
   };
 
+  const wide = (svg: string) => Number(/ width="([\d.]+)"/.exec(svg)?.[1]);
+  const viewBox = (svg: string) => numbers(/viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg)?.slice(1).join(";"));
+
   test("is a sized svg document, as wide as its words need", () => {
     expect(source.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
     expect(source.endsWith("</svg>")).toBe(true);
-    expect(source).toContain('height="84"');
+    expect(source).toContain('height="24"');
     expect(source.length).toBeLessThan(131_072);
-    const wide = (svg: string) => Number(/ width="([\d.]+)"/.exec(svg)?.[1]);
-    const viewBox = (svg: string) => numbers(/viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg)?.slice(1).join(";"));
-    const [boxWidth, boxHeight] = viewBox(source);
-    expect(boxHeight).toBe(160);
-    // Its shape is the viewBox's, at the height asked for.
-    close(wide(source) / 84, (boxWidth ?? 0) / 160, 0.01);
+    // A unit of the picture is a pixel: the viewBox is its size.
+    expect(viewBox(source)).toEqual([wide(source), 24]);
     // Longer words, a wider picture.
     const english = breathingSvg(picture({ words: { ready: "Get ready", in: "Breathe in", holdIn: "Hold", out: "Breathe out", holdOut: "Hold" } }));
     expect(wide(english)).toBeGreaterThan(wide(source));
-    expect(wide(breathingSvg(picture({ shown: 168 })))).toBeGreaterThan(wide(source) * 1.9);
+    expect(wide(breathingSvg(picture({ shown: 48 })))).toBeGreaterThan(wide(source) * 1.9);
+  });
+
+  test("is one line high: far wider than high, the words at the size of the app's own text", () => {
+    expect(wide(source) / 24).toBeGreaterThan(4);
+    const sizes = [...source.matchAll(/<text [^>]*font-size="([\d.]+)"/g)].map((m) => Number(m[1]));
+    expect(sizes.length).toBe(4);
+    for (const size of sizes) expect(size).toBe(14);
+    // They start to the right of the orb's square, and sit on the middle line.
+    for (const [, x, y] of source.matchAll(/<text x="([\d.]+)" y="([\d.]+)"/g)) {
+      expect(Number(x)).toBeGreaterThan(24);
+      close(Number(y), 12 + 14 * 0.35, 0.01);
+    }
+  });
+
+  test("says its size, the same as the document's", () => {
+    for (const changes of [{}, { shown: 32 }, { countdownFrom: 3, elapsedMs: -4000 }, { pattern: patternOf("calm", 4) }]) {
+      const o = picture(changes);
+      const svg = breathingSvg(o);
+      expect(pictureSize(o)).toEqual({ width: wide(svg), height: o.shown });
+      expect(svg).toContain(`height="${o.shown}"`);
+    }
+  });
+
+  test("draws the orb in a square as high as the picture", () => {
+    // The orb's own drawing is 160 units square, scaled to the height.
+    expect(source).toContain('<g transform="scale(0.15)">');
+    expect(breathingSvg(picture({ shown: 32 }))).toContain('<g transform="scale(0.2)">');
+  });
+
+  test("keeps the glow inside the square, so it is not cut off at the band's edge", () => {
+    const unit = 80 / EXTENT; // the body's largest radius, in the orb's units
+    const halo = /<circle [^>]*r="([\d.]+)" fill="url\(#halo\)"[^>]*><animate attributeName="r" values="([^"]+)"/.exec(source);
+    const radii = [Number(halo?.[1]), ...numbers(halo?.[2])];
+    expect(radii.length).toBeGreaterThan(1);
+    // The halo's gradient is out at 0.74 of its radius.
+    for (const r of radii) expect(r * 0.74).toBeLessThan(80 + 0.01);
+    close(Math.max(...radii) * 0.74, 80, 0.05);
+    // And the body at its largest leaves a rim for it.
+    expect(Math.max(...body(source).values)).toBe(unit);
+    expect(unit).toBeLessThan(80);
   });
 
   test("draws no script and nothing it links to", () => {
@@ -88,9 +127,9 @@ describe("the desktop's svg", () => {
 
   test("rests small and grows the orb as the lungs fill", () => {
     const { rest, values } = body(source);
-    close(rest, 0.4 * 50, 0.01);
+    close(rest, 0.4 * 64, 0.01);
     // Box breathing: empty, full after breathing in, full after the hold, empty, empty.
-    expect(values).toEqual([20, 50, 50, 20, 20]);
+    expect(values).toEqual([25.6, 64, 64, 25.6, 25.6]);
   });
 
   test("keeps step with the pattern: a key time at the end of each phase", () => {
@@ -99,7 +138,7 @@ describe("the desktop's svg", () => {
     const calm = breathingSvg(picture({ pattern: patternOf("calm", 4) }));
     expect(calm).toContain('keyTimes="0;0.4;1"');
     expect(calm).toContain('dur="10s"');
-    expect(body(calm).values).toEqual([20, 50, 20]);
+    expect(body(calm).values).toEqual([25.6, 64, 25.6]);
   });
 
   test("gives every animation as many values as key times, and a spline between each", () => {

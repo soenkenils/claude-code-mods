@@ -10,7 +10,9 @@
 import { cycleMs } from "./pacer";
 import type { Pattern } from "./pacer";
 
-export const EXTENT = 1.6; // The picture shows this far out from the centre, each way.
+// The picture shows this far out from the centre, each way: the body at its largest, and a rim
+// for the glow. (It was 1.6, the design's wide halo, in a band that was far too high.)
+export const EXTENT = 1.25;
 
 type Rgb = readonly [number, number, number];
 
@@ -70,9 +72,14 @@ export function scene(fill: number, seconds: number): Scene {
 
 // ---- Desktop --------------------------------------------------------------------------
 
-const SIZE = 160; // The drawing's own units; the picture is shown at `shown` pixels.
+const SIZE = 160; // The orb's own units, a square; the picture shows it `shown` pixels high.
 const MID = SIZE / 2;
 const SCALE = SIZE / (2 * EXTENT);
+// The halo is drawn in so that it has faded out at the square's edge, where the design's would be
+// cut off. Its gradient ends at 0.74 of its radius, which at full lungs is 1.25 times its size.
+const HALO_END = 0.74;
+const HALO_FIT = EXTENT / (1.25 * HALO_SIZE * HALO_END);
+const fitted = (s: Scene): Scene => ({ ...s, halo: { ...s.halo, r: s.halo.r * HALO_FIT } });
 
 // Gradients that never change, so a frame only moves circles. Opacity of a layer is the
 // circle's own; a gradient's alphas are the design's.
@@ -81,7 +88,7 @@ const DEFS = [
   `<linearGradient id="body" x1="0" y1="0" x2="0" y2="1">${stops(BODY)}</linearGradient>`,
   `<radialGradient id="core">${stops(CORE)}</radialGradient>`,
   ...BLOB_RAMPS.map((list, i) => `<radialGradient id="blob${i}">${stops(list)}</radialGradient>`),
-  `<filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>`,
+  `<filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"/></filter>`,
 ].join("");
 
 // The pacer's ease as a SMIL spline: slow at both ends, like a breath.
@@ -92,13 +99,14 @@ const len = (n: number) => num(n * SCALE, 2);
 const esc = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 // The words sit to the right of the orb, in the same picture, so they change in step with it.
-const TEXT_X = SIZE + 12; // where they start, in drawing units
-const FONT = 42; // their size in drawing units: about 16 px when the picture is 60 px high
+// The picture is one line of text high, and outside the orb's square one unit is one pixel.
+const GAP = 0.3; // between the orb's square and the words, as a share of the picture's height
+const FONT = 14 / 24; // the words' size, as a share of it: 14 px in a picture 24 px high
 const CHAR = 0.6; // an average character's width, in em, to size the picture
 // What colour is right is not known in here: the picture cannot see the app's theme, and the
 // OS's setting is not always the app's. By default a grey that reads on a dark ground (about
-// 4.4 to 1) and on a light one (about 3.3 to 1), which is enough for large type. A person who
-// says which theme the app has gets a colour made for it (about 10 to 1 and 8 to 1).
+// 4.4 to 1) and on a light one (about 3.3 to 1): dim for type this small, so it is semibold. A
+// person who says which theme the app has gets a colour made for it (about 10 to 1 and 8 to 1).
 export type Theme = "auto" | "dark" | "light";
 export const WORD_FILLS: Record<Theme, string> = { auto: "#8A8985", dark: "#DAD8D2", light: "#4A4944" };
 const CROSS = 150; // ms: a word fades out and the next in across this long, each side of a change
@@ -115,7 +123,7 @@ export type Picture = {
   elapsedMs: number;
   // The countdown's first number: 3 shows 3, 2, 1, 0, a second each, before the breath. 0: none.
   countdownFrom: number;
-  // Its height on screen, in pixels; the width follows the words.
+  // Its height on screen, in pixels: the orb's, about one line of text. The width follows the words.
   shown: number;
   // The picture fades in over this long when it first shows. 0 or absent: it is there at once.
   fadeInMs?: number;
@@ -127,6 +135,19 @@ export type Picture = {
   // And fades out over `ms`, starting `inMs` after it first shows.
   fadeOut?: { inMs: number; ms: number };
 };
+
+// What the picture says, at most one of these at a time: a word for each phase, and the
+// countdown's numbers.
+const countdownTexts = (o: Pick<Picture, "words" | "countdownFrom">) => {
+  const from = Math.max(0, Math.round(o.countdownFrom));
+  return o.countdownFrom > 0 ? Array.from({ length: from + 1 }, (_, i) => `${o.words.ready}  ${from - i}`) : [];
+};
+
+// The picture's size in pixels: as high as asked, and as wide as its longest word needs.
+export function pictureSize(o: Pick<Picture, "pattern" | "words" | "countdownFrom" | "shown">): { width: number; height: number } {
+  const chars = Math.max(...o.pattern.phases.map((p) => o.words[p.kind].length), ...countdownTexts(o).map((t) => t.length));
+  return { width: Math.ceil(o.shown * (1 + GAP) + chars * o.shown * FONT * CHAR + 2), height: o.shown };
+}
 
 // A word's opacity over one cycle, as keyframes. It is 1 in its own phase and 0 in the others,
 // and across `CROSS` either side of a change it fades out as the next fades in.
@@ -202,8 +223,8 @@ export function breathingSvg(o: Picture): string {
   const breathe = (attribute: string, empty: number, full: number, digits = 2) =>
     `<animate attributeName="${attribute}" values="${values(empty, full, digits)}" ${timing}/>`;
 
-  const rest = scene(0, 0);
-  const open = scene(1, 0);
+  const rest = fitted(scene(0, 0));
+  const open = fitted(scene(1, 0));
   const circle = (r: number, attrs: string, inner = "") => `<circle cx="${MID}" cy="${MID}" r="${len(r)}" ${attrs}>${inner}</circle>`;
   const radius = (empty: number, full: number) => breathe("r", len(empty), len(full));
 
@@ -251,9 +272,11 @@ export function breathingSvg(o: Picture): string {
 
   // The words: one for each phase, each lit in its own phase; and the countdown's numbers, each
   // lit for its second, ending as the first breath begins.
+  const { width, height } = pictureSize(o);
+  const font = num(height * FONT, 2);
   const text = (content: string, animation: string) =>
-    `<text x="${TEXT_X}" y="${num(MID + FONT * 0.35, 1)}" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" ` +
-    `font-size="${FONT}" font-weight="600" letter-spacing="-0.4" fill="${WORD_FILLS[o.theme ?? "auto"]}" opacity="0">${esc(content)}${animation}</text>`;
+    `<text x="${num(height * (1 + GAP), 2)}" y="${num(height / 2 + font * 0.35, 2)}" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" ` +
+    `font-size="${font}" font-weight="600" fill="${WORD_FILLS[o.theme ?? "auto"]}" opacity="0">${esc(content)}${animation}</text>`;
   const phaseWords = pattern.phases.map((phase, i) => {
     const { keyTimes, values: levels } = wordLevels(pattern, i);
     // Before the first breath an animation has not begun, so its word would sit at 0 and then jump
@@ -269,27 +292,17 @@ export function breathingSvg(o: Picture): string {
         `<animate attributeName="opacity" values="${levels}" keyTimes="${keyTimes}" dur="${num(total / 1000, 3)}s" begin="${begin}s" repeatCount="indefinite"/>`,
     );
   });
-  const from = Math.max(0, Math.round(o.countdownFrom));
-  const countdownWords: string[] = [];
-  const countdownTexts: string[] = [];
-  if (o.countdownFrom > 0) {
-    const window = 1000 + 2 * CROSS;
-    const fade = num((2 * CROSS) / window, 4);
-    for (let n = from; n >= 0; n--) {
-      const content = `${words.ready}  ${n}`;
-      countdownTexts.push(content);
-      countdownWords.push(
-        text(
-          content,
-          `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;${fade};${num(1 - fade, 4)};1" dur="${num(window / 1000, 3)}s" ` +
-            `begin="${num(-elapsedMs / 1000 - (n + 1) - CROSS / 1000, 3)}s"/>`,
-        ),
-      );
-    }
-  }
-  const chars = Math.max(...pattern.phases.map((p) => words[p.kind].length), ...countdownTexts.map((t) => t.length));
-  const width = TEXT_X + Math.ceil(chars * FONT * CHAR) + 8;
-  const scale = o.shown / SIZE;
+  const window = 1000 + 2 * CROSS;
+  const fade = num((2 * CROSS) / window, 4);
+  const counted = countdownTexts(o);
+  const countdownWords = counted.map((content, i) => {
+    const n = counted.length - 1 - i; // the number it shows
+    return text(
+      content,
+      `<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;${fade};${num(1 - fade, 4)};1" dur="${num(window / 1000, 3)}s" ` +
+        `begin="${num(-elapsedMs / 1000 - (n + 1) - CROSS / 1000, 3)}s"/>`,
+    );
+  });
 
   const fadeIn = o.fadeInMs ? `<animate attributeName="opacity" from="0" to="1" dur="${num(o.fadeInMs / 1000, 3)}s" begin="0s" fill="freeze"/>` : "";
   const fadeOut = o.fadeOut
@@ -297,10 +310,10 @@ export function breathingSvg(o: Picture): string {
     : "";
 
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${SIZE}" width="${num(width * scale, 1)}" height="${o.shown}">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">`,
     isReduced ? "" : `<style>@media (prefers-reduced-motion: reduce){.move{display:none}.still{display:inline}}</style>`,
     `<defs>${DEFS}</defs>`,
-    `<g>${fadeOut}<g>${fadeIn}${isReduced ? "" : moving}${still}${phaseWords.join("")}${countdownWords.join("")}</g></g>`,
+    `<g>${fadeOut}<g>${fadeIn}<g transform="scale(${num(height / SIZE, 4)})">${isReduced ? "" : moving}${still}</g>${phaseWords.join("")}${countdownWords.join("")}</g></g>`,
     `</svg>`,
   ].join("");
 }

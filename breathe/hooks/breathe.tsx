@@ -6,10 +6,10 @@
 // during the countdown has no breath to finish, so the band goes at once. A Hide button takes
 // the band away for the rest of the turn, for when you do not want to breathe along just now.
 //
-// One module, two drawings. Claude Desktop gets an aurora orb that expands and contracts with
-// the phase in words beside it, one SVG that animates itself, so the band sends the same
-// picture on every redraw. The terminal gets one line: the phase in words and a bar that fills
-// and empties with the breath.
+// One module, two drawings, each one line high. Claude Desktop gets a small aurora orb that
+// expands and contracts with the phase in words beside it, one SVG that animates itself, so the
+// band sends the same picture on every redraw. The terminal gets the phase in words and a bar
+// that fills and empties with the breath.
 //
 // The band does not appear the moment a turn begins: a quick answer should not call up a
 // breathing exercise it then takes away. It waits `startAfterSeconds` (3 by default). It steps
@@ -20,7 +20,7 @@
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, PluginOptions, Register, Timer } from "claude-code";
 
-import { breathingSvg } from "./orb";
+import { breathingSvg, pictureSize } from "./orb";
 import type { Motion, Theme } from "./orb";
 import { countdownAt, countdownMs, cycleMs, frameAt, isPatternId, patternOf, restAt, timing } from "./pacer";
 import type { Kind, Pattern, PatternId } from "./pacer";
@@ -28,7 +28,13 @@ import type { BreatheRun } from "../types/index";
 
 const COMMAND = "breathe";
 const FRAME_MS = 100;
-const ORB_PIXELS = 60; // The desktop's picture is this high, in CSS pixels (it was 84: too prominent).
+// The desktop's picture is this high, in CSS pixels: the orb and one line of text.
+//
+// It was meant to be 84 and then 60, and came out 99 in a band 170 high. Claude Desktop draws an
+// animated (`isInteractive`) Svg in a frame of its own, and, measured on a screenshot of the app
+// (2026-11-11), a frame that is given no size is 300 by 150 px whatever size the markup says,
+// with the picture fitted into it. So the Svg element is given the picture's size as its own.
+const ORB_PIXELS = 24;
 const FADE_IN_MS = 800; // The desktop's picture fades in when it first shows,
 const END_FADE_MS = 800; // fades out ending as the last exhale does,
 const HIDE_FADE_MS = 400; // and quickly when the Hide button is pressed.
@@ -118,7 +124,7 @@ export const register: Register = (on, options) => {
   // same source and the surface can keep the picture it has. It is drawn again only when the
   // run changes in a way the picture must know (the turn ended, or Hide was pressed), and a
   // reload draws it afresh, in step with the breath.
-  let orb: { startedAt: number; key: string; source: string; drawnAt: number } | undefined;
+  let orb: { startedAt: number; key: string; source: string; width: number; height: number; drawnAt: number } | undefined;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
@@ -209,8 +215,15 @@ export const register: Register = (on, options) => {
       : { label: cfg.labels[frame.kind], color: COLOR[frame.kind], fill: frame.fill, number: frame.secondsLeft };
     const hint = current.finishAt === null ? hintFor(cfg, pattern) : cfg.labels.done;
     const { Box, Text, Button } = $.ui.resolve(e);
-    // On the desktop `role="dismiss"` is the app's own close control, named by the label.
+    // `role="dismiss"` is for the app's own close control, named by the label.
     const hideButton = <Button key="hide" label={cfg.labels.hide} plain dimColor role="dismiss" onPress={() => dismiss($, hasPicture)} />;
+    // Beside the picture it is a cross: a desktop app that has no close control of its own draws
+    // what the button holds (the app in the screenshot drew the word), and the label still names it.
+    const closeButton = (
+      <Button key="hide" label={cfg.labels.hide} plain dimColor role="dismiss" onPress={() => dismiss($, hasPicture)}>
+        ✕
+      </Button>
+    );
 
     // The one-line version: the phase, a bar that fills and empties with the breath, the seconds left
     // (during the countdown: the number, over an empty bar).
@@ -249,33 +262,33 @@ export const register: Register = (on, options) => {
           const ms = Math.min(current.isHiding ? HIDE_FADE_MS : END_FADE_MS, left);
           fadeOut = { inMs: left - ms, ms };
         }
+        const sized = { pattern, words: cfg.words, countdownFrom: cfg.countdownFrom, shown: ORB_PIXELS };
+        const size = pictureSize(sized);
         const source = breathingSvg({
-          pattern,
-          words: cfg.words,
+          ...sized,
           elapsedMs: elapsed,
-          countdownFrom: cfg.countdownFrom,
-          shown: ORB_PIXELS,
           motion: cfg.motion,
           theme: cfg.theme,
           fadeInMs: isFirst ? FADE_IN_MS : 0,
           ...(fadeOut ? { fadeOut } : {}),
         });
-        orb = { startedAt: current.startedAt, key, source, drawnAt: now };
+        orb = { startedAt: current.startedAt, key, source, ...size, drawnAt: now };
       }
       orb.drawnAt = now;
       const isFinishing = current.finishAt !== null && !current.isHiding;
       mine = (
-        <Box flexDirection="row" alignItems="center" columnGap={3} paddingX={1}>
+        <Box flexDirection="row" alignItems="center" columnGap={2} paddingX={1}>
           {/* The orb and the phase's word are one picture that moves by itself; a redraw leaves it be. */}
-          <Svg source={orb.source} alt={cfg.labels.orb} isInteractive />
-          {isFinishing ? (
-            <Box flexGrow={1}>
+          <Svg source={orb.source} alt={cfg.labels.orb} width={orb.width} height={orb.height} isInteractive />
+          {/* What is left of the row, so the close control sits at the band's far end. */}
+          <Box flexGrow={1}>
+            {isFinishing ? (
               <Text dimColor size="footnote">
                 {cfg.labels.done}
               </Text>
-            </Box>
-          ) : null}
-          {hideButton}
+            ) : null}
+          </Box>
+          {closeButton}
         </Box>
       );
     }

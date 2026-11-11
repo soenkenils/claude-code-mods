@@ -46,14 +46,14 @@ In the terminal the hint beside the bar names the pattern and its timing (`Ruhig
 ## Where it shows
 
 - **Terminal**: one line: the phase (`Einatmen`, `Halten`, `Ausatmen`) in the phase's theme color, a bar that fills as you breathe in and empties as you breathe out, in steps of an eighth of a cell, the seconds left, and on a wide terminal the hint (`Box Breathing · 4-4-4-4`), then the Hide button. There is no orb in the terminal.
-- **Claude Desktop**: a compact band, 60 px high: the orb and one word beside it (the phase, or `Mach dich bereit 3` in the countdown), no seconds and no hint, and the app's own close control at the right. The orb and the word are one SVG without a background that animates itself with SMIL (the SVG's own animation), so they share one clock and the word changes exactly as the orb turns. The band sends the same picture for a whole breathing run, so the desktop app moves it at its own frame rate. It fades in over 0.8 s, and fades out ending as the last exhale ends (0.4 s when you press Hide). While Claude is finishing, a small note says so. On a very narrow band it is the same one line as in the terminal, which has nothing to fade.
+- **Claude Desktop**: a band one line high: a small orb and one word beside it (the phase, or `Mach dich bereit 3` in the countdown), no seconds and no hint, and a close cross at the far end. The picture is 24 px high, the word 14 px. The orb and the word are one SVG without a background that animates itself with SMIL (the SVG's own animation), so they share one clock and the word changes exactly as the orb turns. The band sends the same picture for a whole breathing run, so the desktop app moves it at its own frame rate. It fades in over 0.8 s, and fades out ending as the last exhale ends (0.4 s when you press Hide). While Claude is finishing, a small note says so. On a very narrow band it is the same one line as in the terminal, which has nothing to fade.
 - **Reduced motion**: when the system asks for less motion, the orb does not grow and shrink. Two still orbs, a small and a large, fade into each other at the same pace instead, and the words change as before.
 
 Another mod's band above the prompt (the token forecast, a heads-up) is kept and drawn under the orb. A mod above this one in the chain that draws its own band without passing the rest on still hides it, as mods already do to each other.
 
 ## Use
 
-- The **Ausblenden** button (`Hide` in English) takes the band away for the rest of the turn, for when you do not want to breathe along just now. In Claude Desktop it is the app's own close control at the right edge of the band, with a hit area larger than the symbol. In the terminal it is a plain text button; click it, or where the terminal does not pass clicks on, focus the band with ctrl+x tab and press Enter. The next turn brings the band back.
+- The **Ausblenden** button (`Hide` in English) takes the band away for the rest of the turn, for when you do not want to breathe along just now. In Claude Desktop it is a cross (✕) at the far end of the band, or the app's own close control where the app draws one. In the terminal it is a plain text button; click it, or where the terminal does not pass clicks on, focus the band with ctrl+x tab and press Enter. The next turn brings the band back.
 - `/breathe` says whether it is on and which pattern it breathes. `/breathe off` mutes it for the session, `/breathe on` brings it back with the next turn, `/breathe box|even|calm` picks the pattern (see [Patterns](#patterns)).
 - The band's own collapse (`[-]`, ctrl+x ctrl+a) hides it for the moment.
 
@@ -79,6 +79,7 @@ Fields in `/config` (or `pluginConfigs` in settings).
 - `speak` uses the system voice (`say` on macOS). Elsewhere the call is refused and the band goes on without sound. Each word is said when the clock enters its phase, up to a tenth of a second late.
 - The word's color in the Desktop picture is a fixed grey that reads on a dark and on a light ground (about 4.4 to 1 and 3.3 to 1). The picture cannot see the app's theme, so it cannot follow it. The `theme` setting picks a color made for one (about 10 to 1 on dark, 8 to 1 on light).
 - Reduced motion by `auto` is the system setting as the SVG sees it, and the app's own setting may differ; `motion: reduced` makes it certain. The picture has been checked in Chromium only.
+- The Desktop band's height is the picture's 24 px plus what the app puts around it. Up to 0.4.1 the picture was not given a size as an element, and the app then draws it in a frame of 300 by 150 px whatever the SVG itself says: the band was 170 px high. That it is one line high now follows from that measurement and has not been seen in the app yet.
 
 ## Development
 

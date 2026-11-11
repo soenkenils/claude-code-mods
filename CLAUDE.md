@@ -51,6 +51,7 @@ These are from the generated type docs and they bite:
 - Hooks follow a middleware shape: `on(event, filter?, async ($, e, next) => …)`. Return `next(e)` to pass through, or a result (e.g. `{ deny: "…" }` on `tool.call`) to short-circuit.
 - Persistent state: declare keys by augmenting `PluginState` in `declare module "claude-code"` inside `types/index.d.ts`, then use `$.state.get/set` (or the `atom`/`read`/`update` helpers). `plugin` and `key` must be **string literals in source** so `claude plugin validate` can read them. Host-held state survives hot reloads of the module; module-level variables don't.
 - Within one dispatch every `$.state.get` sees the same snapshot. That's why blast-radius keeps its Proceed/Cancel `decision` in a module variable and polls with `$.process.run(["sleep", "0.25"])`: an in-flight `$` call doesn't count against the hook's time budget.
+- Give an `isInteractive` `Svg` its `width` and `height` props. Without them Claude Desktop draws it in a frame of 300 by 150 px, whatever size the markup's own `width`/`height` say, and fits the picture into that (measured on a screenshot of breathe, 2026-11-11: a 60 px picture came out 99 px high in a band of 170).
 - Pure logic lives in a sibling file with no `$` dependency (`classify.ts`/`report.ts`, `detect.ts`) so it can be unit-tested directly; the entry file holds hooks and rendering.
 
 ## Testing pattern

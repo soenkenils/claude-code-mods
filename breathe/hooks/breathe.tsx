@@ -28,7 +28,7 @@ import type { BreatheRun } from "../types/index";
 
 const COMMAND = "breathe";
 const FRAME_MS = 100;
-const ORB_PIXELS = 84; // The desktop's picture is this high, in CSS pixels.
+const ORB_PIXELS = 60; // The desktop's picture is this high, in CSS pixels (it was 84: too prominent).
 const FADE_IN_MS = 800; // The desktop's picture fades in when it first shows,
 const END_FADE_MS = 800; // fades out ending as the last exhale does,
 const HIDE_FADE_MS = 400; // and quickly when the Hide button is pressed.

@@ -12,9 +12,10 @@ A collection of Claude Code **mods**: plugins whose behaviour is a TypeScript ho
 ## Install
 
 ```
-/plugin marketplace add soenkenils/claude-code-mods
 /plugin install token-weather --marketplace soenkenils/claude-code-mods
 ```
+
+This adds the marketplace first if it is not added yet. Once it is, `/plugin install token-weather@claude-code-mods` works too.
 
 Replace `token-weather` with any mod above.
 

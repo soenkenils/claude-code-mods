@@ -14,10 +14,10 @@ After each turn the line shows:
 
 - **The forecast**: a weather word, colored by how full the context is.
 - **A gauge** of the fill level.
-- **The percentage** (`42%`, or `42% of context` on a wide terminal).
+- **The percentage** (`42%`, or `42% of context` when the line is 96 columns or wider).
 - **A hint**, `try /compact`, from 90% on.
 - **Tokens used / window size**, for example `84k / 200k`.
-- **A sparkline** of the context size over the last 12 turns, scaled to the largest, once there are two readings.
+- **A sparkline** of the context size over the last 12 readings, scaled to the largest, once there are two readings.
 - **The change** since the last turn: `▲ +3.2k last turn`, `steady`, or `▼ 80k last turn` in green when the context shrank (a compaction or clear).
 
 | Context | Forecast |
@@ -28,7 +28,7 @@ After each turn the line shows:
 | 75 to 89% | Storm |
 | 90% and up | Compact soon |
 
-Nothing is drawn until the first turn has been measured. When the line is too narrow, the less important parts drop out first: the change, the sparkline, the token count and the hint, in that order. The forecast, gauge and percentage stay.
+Nothing is drawn until the first turn has been measured. When the line is too narrow, parts are dropped in this order: sparkline, change, token count, hint, gauge. A part is skipped only if it does not fit, so a short one can stay when a longer one before it went. The forecast and percentage always stay.
 
 ## Terminal and Claude Desktop
 
@@ -43,7 +43,7 @@ None. It has no slash commands either.
 
 ## Limits
 
-It reads the usage figures Claude Code reports after each main-thread turn (a subagent's turns do not count), so it shows the state after the last turn, not live token streaming. The history is held by the host, so it survives a reload of the module.
+It reads the usage figures Claude Code reports after each main-thread turn, so it shows the state after the last turn, not live token streaming. The history is held by the host, so it survives a reload of the module.
 
 ## Development
 

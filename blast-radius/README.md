@@ -30,7 +30,7 @@ Before asking, it runs read-only commands (`find`, `du`, `git`) in the session's
 - **Force push**: the commits on the upstream branch you do not have (`HEAD..@{u}`). With no upstream it says so.
 - **Migrations**: for Django, the pending migrations from `showmigrations --plan`. For the other tools it only says to check which database is targeted.
 
-The title is red when something would be lost and amber when nothing was found.
+The title takes the theme's error colour when something would be lost (and for migrations it cannot check), and its warning colour when nothing was found.
 
 ## The flow
 

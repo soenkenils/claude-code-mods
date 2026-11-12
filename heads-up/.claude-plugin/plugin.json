@@ -1,6 +1,6 @@
 {
   "name": "heads-up",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Watches the running session and shows a heads-up when something is off: failing tools or tests in a row, edits outside the project, a context spike, or a run that stalls.",
   "author": { "name": "Sönke" },
   "types": "./types/index.d.ts",

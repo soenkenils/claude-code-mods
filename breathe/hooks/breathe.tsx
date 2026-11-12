@@ -242,16 +242,22 @@ export const register: Register = (on, options) => {
     // The one-line version: the phase, a bar that fills and empties with the breath, the seconds left
     // (during the countdown: the number, over an empty bar).
     const columns = e.props.bodyColumns - 2 - cfg.labels.hide.length - 1; // the Box's paddingX, the button and its gap
+    // The bar comes first and keeps its place: its width follows the room and the longest word the
+    // band can show, never the word it shows now. The words after it are what gets cut when the line is short.
+    const longest = Math.max(...Object.values(cfg.words).map((w) => w.length));
+    const barWidth = Math.max(4, Math.min(16, columns - longest - 10));
     const oneLine = () => (
       <Box flexDirection="row" gap={1} paddingX={1}>
+        <Box flexShrink={0} marginRight={1}>
+          <Text color={shown.color}>{bar(shown.fill, barWidth)}</Text>
+        </Box>
         <Box flexGrow={1} flexShrink={1}>
           <Text wrap="truncate-end">
             <Text color={shown.color} weight="semibold">
               {shown.label}
             </Text>
-            {"  "}
-            <Text color={shown.color}>{bar(shown.fill, Math.max(4, Math.min(16, columns - shown.label.length - 10)))}</Text>
-            <Text dimColor tabular>{`  ${shown.number}`}</Text>
+            {" ".repeat(longest - shown.label.length)}
+            <Text dimColor tabular>{`  ${String(shown.number).padStart(2)}`}</Text>
             {columns >= 56 ? <Text dimColor>{`  ${hint}`}</Text> : null}
           </Text>
         </Box>

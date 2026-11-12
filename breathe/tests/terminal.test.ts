@@ -417,3 +417,104 @@ describe("on the terminal", () => {
     await ui.unmount();
   });
 });
+
+// The one-line band: the bar comes first, in a place that does not move; the words follow it.
+
+describe("the bar's place on the terminal", () => {
+  const CELLS = /^[█▏▎▍▌▋▊▉─]+$/;
+  type Look = { barAt: number; barLength: number; labelAt: number; before: string; line: string };
+  const look = async (ui: Band): Promise<Look> => {
+    const texts = (await ui.findAll({ type: "Text" })).map((t) => t.text);
+    const barAt = texts.findIndex((t) => CELLS.test(t));
+    const labelAt = texts.findIndex((t) => /[A-Za-zä]{3}/.test(t) && !CELLS.test(t));
+    return {
+      barAt,
+      barLength: texts[barAt]?.length ?? -1,
+      labelAt,
+      before: texts.slice(0, labelAt).join(""),
+      line: texts.join("|"),
+    };
+  };
+  const columnsOf = (l: Look) => ({ barAt: l.barAt, barLength: l.barLength, labelStart: l.before.length });
+
+  // Each state the line can show, in a fixed width: the countdown, every phase.
+  async function states($: Parameters<typeof start>[0], clock: { advance(ms: number): Promise<unknown> }, width: number, phaseMs: number[]) {
+    const seen: Look[] = [];
+    const ui = await band($, "terminal", { bodyColumns: width });
+    for (let i = 0; i < 4; i++) {
+      seen.push(await look(ui));
+      await clock.advance(1000);
+    }
+    for (const ms of phaseMs) {
+      seen.push(await look(ui));
+      await clock.advance(ms);
+    }
+    await ui.unmount();
+    return seen;
+  }
+
+  const patterns = [
+    { pattern: "box", phases: [4000, 4000, 4000, 4000, 4000] },
+    { pattern: "even", phases: [4000, 4000, 4000] },
+    { pattern: "calm", phases: [4000, 6000, 4000] },
+  ];
+  for (const language of ["de", "en"]) {
+    for (const { pattern, phases } of patterns) {
+      for (const width of [100, 80, 50]) {
+        test(`${pattern}/${language} at ${width}: bar first, same columns in every state, label at one column`, noWait({ pattern, language }), async ($, on) => {
+          const clock = core(on);
+          await start($);
+          await beginTurn($);
+          const seen = await states($, clock, width, phases);
+          expect(seen.length).toBe(4 + phases.length);
+          for (const l of seen) {
+            expect(l.barAt).toBeGreaterThanOrEqual(0);
+            expect(l.barAt).toBeLessThan(l.labelAt);
+          }
+          const first = columnsOf(seen[0]!);
+          for (const l of seen) expect(columnsOf(l)).toEqual(first);
+          expect(first.barLength).toBeGreaterThanOrEqual(4);
+          expect(first.barLength).toBeLessThanOrEqual(16);
+        });
+      }
+
+      test(`${pattern}/${language}: the finishing breath keeps the same columns`, noCountdown({ pattern, language }), async ($, on) => {
+        const clock = core(on);
+        await start($);
+        await beginTurn($);
+        const ui = await band($, "terminal", { bodyColumns: 80 });
+        const running = columnsOf(await look(ui));
+        await ui.unmount();
+        await clock.advance(1000);
+        await endTurn($);
+        const seen: ReturnType<typeof columnsOf>[] = [];
+        for (let i = 0; i < 6; i++) {
+          const w = await band($, "terminal", { bodyColumns: 80 });
+          const l = await look(w);
+          if (l.barAt >= 0) {
+            expect(l.barAt).toBeLessThan(l.labelAt);
+            seen.push(columnsOf(l));
+          }
+          await w.unmount();
+          await clock.advance(2000);
+        }
+        expect(seen.length).toBeGreaterThan(2);
+        for (const c of seen) expect(c).toEqual(running);
+      });
+    }
+  }
+
+  test("on a narrow line the bar stays whole and the text is what gives way", noWait(), async ($, on) => {
+    core(on);
+    await start($);
+    await beginTurn($);
+    const ui = await band($, "terminal", { bodyColumns: 28 });
+    // The bar's box does not shrink; the text's box does, and cuts its end.
+    const boxes = await ui.findAll({ type: "Box" });
+    expect(boxes.some((b) => b.props.flexShrink === 0)).toBe(true);
+    const cut = (await ui.findAll({ type: "Text" })).find((t) => t.props.wrap === "truncate-end");
+    expect(cut).toBeDefined();
+    expect((await look(ui)).barLength).toBeGreaterThanOrEqual(4);
+    await ui.unmount();
+  });
+});

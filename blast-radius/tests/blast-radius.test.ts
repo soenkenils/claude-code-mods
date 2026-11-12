@@ -9,6 +9,16 @@ const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "", isStdoutTruncate
 function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>, exits = {} as Record<string, number>, cwdThrows = false, closeThrows = false } = {}) {
   const clock = mock.clock(on);
   const ran: string[] = [];
+  const toasts: string[] = [];
+  const notes: string[] = [];
+  on("ui.toast", (_$, e) => {
+    toasts.push(e.text);
+    return { value: undefined };
+  });
+  on("ui.notify", (_$, e) => {
+    notes.push(e.text);
+    return { value: { isSent: true as const, channel: "kitty" as const } };
+  });
   on("session.cwd", () => {
     if (cwdThrows) throw new Error("no cwd");
     return { value: "/repo" };
@@ -31,7 +41,7 @@ function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>,
     ran.push(String(e.command));
     return { result: { stdout: "done", stderr: "", interrupted: false } } as never;
   });
-  return { clock, ran };
+  return { clock, ran, toasts, notes };
 }
 
 const SURFACES = ["terminal", "desktop"] as const;
@@ -47,12 +57,12 @@ function pane($: Engine, surface: Surface) {
   });
 }
 
-function band($: Engine, surface: Surface, maxRows = 10) {
+function band($: Engine, surface: Surface, maxRows = 10, isCollapsed = false) {
   return $.ui.mount({
     plugin: "blast-radius",
     surface,
     component: "AbovePrompt",
-    props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: 80, scroll: { offset: 0, bodyRows: maxRows }, view: {} },
+    props: { hasSurvey: false, isCollapsed, isWorking: true, maxRows, bodyColumns: 80, scroll: { offset: 0, bodyRows: maxRows }, view: {} },
   });
 }
 
@@ -63,12 +73,12 @@ async function shown(ui: Drawing) {
 }
 
 // Calls Bash with a risky command, lets the hook measure it and draw, and hands back the drawing.
-async function hold($: Engine, on: On, surface: Surface, command: string, opts: { isPlaced?: boolean; outputs?: Record<string, string>; exits?: Record<string, number>; maxRows?: number; closeThrows?: boolean } = {}) {
-  const { clock, ran } = core(on, opts);
+async function hold($: Engine, on: On, surface: Surface, command: string, opts: { isPlaced?: boolean; outputs?: Record<string, string>; exits?: Record<string, number>; maxRows?: number; closeThrows?: boolean; isCollapsed?: boolean } = {}) {
+  const { clock, ran, toasts, notes } = core(on, opts);
   const call = $.tool.call({ tool: "Bash", command });
   await clock.settle();
-  const ui = opts.isPlaced === false ? await band($, surface, opts.maxRows) : await pane($, surface);
-  return { clock, ran, call, ui };
+  const ui = opts.isPlaced === false ? await band($, surface, opts.maxRows, opts.isCollapsed) : await pane($, surface);
+  return { clock, ran, call, ui, toasts, notes };
 }
 
 describe("classify", () => {
@@ -260,6 +270,62 @@ for (const surface of SURFACES) {
 
         expect((await call).deny).toBe(undefined);
         expect(ran).toEqual(["git push --force"]);
+        await ui.unmount();
+      });
+
+      test("a collapsed band tells the person once that a command waits, and how to answer", async ($, on) => {
+        const { clock, call, ui, toasts, notes } = await hold($, on, surface, "git reset --hard", { isPlaced: false, isCollapsed: true });
+        const again = await band($, surface, 10, true);
+        await clock.settle();
+        expect(toasts).toHaveLength(1);
+        expect(notes).toHaveLength(1);
+        expect(toasts[0]).toContain("git reset --hard");
+        expect(toasts[0]).toContain("ctrl+x ctrl+a");
+        await ui.press({ key: "cancel" });
+        await clock.advance(250);
+        expect((await call).deny).toContain("chose not to run it");
+        await again.unmount();
+        await ui.unmount();
+      });
+
+      test("the next hold tells again", async ($, on) => {
+        const first = await hold($, on, surface, "git reset --hard", { isPlaced: false, isCollapsed: true });
+        await first.ui.press({ key: "cancel" });
+        await first.clock.advance(250);
+        await first.call;
+        const call = $.tool.call({ tool: "Bash", command: "git clean -fd" });
+        await first.clock.settle();
+        const ui = await band($, surface, 10, true);
+        await first.clock.settle();
+        expect(first.toasts).toHaveLength(2);
+        await ui.press({ key: "cancel" });
+        await first.clock.advance(250);
+        await call;
+        await ui.unmount();
+        await first.ui.unmount();
+      });
+
+      test("a visible band or the pane says nothing extra", async ($, on) => {
+        const shownBand = await hold($, on, surface, "git reset --hard", { isPlaced: false, isCollapsed: false });
+        expect(shownBand.toasts).toEqual([]);
+        expect(shownBand.notes).toEqual([]);
+        await shownBand.ui.press({ key: "cancel" });
+        await shownBand.clock.advance(250);
+        await shownBand.call;
+        await shownBand.ui.unmount();
+      });
+
+      test("the pane says nothing extra", async ($, on) => {
+        const { clock, call, ui, toasts, notes } = await hold($, on, surface, "git reset --hard");
+        // a collapsed band elsewhere is not drawn for the hold: it sits in the pane
+        const idle = await band($, surface, 10, true);
+        await clock.settle();
+        expect(toasts).toEqual([]);
+        expect(notes).toEqual([]);
+        await ui.press({ key: "cancel" });
+        await clock.advance(250);
+        await call;
+        await idle.unmount();
         await ui.unmount();
       });
 

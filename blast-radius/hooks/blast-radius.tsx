@@ -15,6 +15,8 @@ const held = atom({ plugin: "blast-radius", key: "held" } as const, null, { shap
 type Decision = "proceed" | "cancel";
 let isHolding = false;
 let decision: Decision | null = null;
+// Whether this hold has already told the person it waits behind a collapsed band.
+let isTold = false;
 
 export const register: Register = (on) => {
   on("tool.call", { tool: "Bash" }, async ($, e, next) => {
@@ -28,6 +30,7 @@ export const register: Register = (on) => {
 
     isHolding = true;
     decision = null;
+    isTold = false;
     try {
       const report = await measure($, risk, await $.session.cwd());
       await update($, held, (): BlastRadiusHeld => ({ command, ...report, where: "pane" }));
@@ -84,6 +87,7 @@ export const register: Register = (on) => {
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const current = await read($, held);
     if (current === null || current.where !== "band" || e.props.hasSurvey) return next(e);
+    if (e.props.isCollapsed) tellOnce($, current.command);
     // The band scrolls past `maxRows`; keep the buttons in view with a short list.
     const room = Math.max(2, Math.min(8, e.props.maxRows - 7));
     return warning($, e, current, { isPane: false, room });
@@ -160,6 +164,17 @@ function layout(sections: BlastRadiusHeld["sections"], room: number) {
     hidden += from;
   }
   return { rows, hidden };
+}
+
+// A collapsed band draws nothing, so a held command would wait unseen. Say it
+// once per hold, as a toast (it reads) and a notification (it reaches a person
+// who looked away); neither can fail the render.
+function tellOnce($: EngineInterface, command: string) {
+  if (isTold) return;
+  isTold = true;
+  const shortened = command.length > 80 ? `${command.slice(0, 79)}…` : command;
+  $.ui.toast(`Blast Radius is holding: ${shortened}. Expand the band (ctrl+x ctrl+a) to choose Run anyway or Cancel.`, { timeoutMs: 15000 });
+  $.ui.notify(`A command is waiting for your decision: ${shortened}`).catch(() => {});
 }
 
 function decide(choice: Decision) {

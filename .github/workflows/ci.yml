@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  mods:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Pinned to the newest release that was at least two weeks old when this
+      # was written (2.1.322 was too fresh). `plugin test` and `plugin validate`
+      # run without authentication, so no secrets are needed.
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.312
+      # Every top-level folder with a .claude-plugin/plugin.json is a mod.
+      # Loop through all of them so one failure does not hide the others.
+      - name: Test and validate each mod
+        run: |
+          failed=0
+          for manifest in */.claude-plugin/plugin.json; do
+            mod="${manifest%%/*}"
+            for cmd in test validate; do
+              echo "::group::claude plugin $cmd $mod"
+              claude plugin "$cmd" "$mod" || { echo "::error::plugin $cmd failed for $mod"; failed=1; }
+              echo "::endgroup::"
+            done
+          done
+          exit "$failed"
+      - name: Validate marketplace
+        run: claude plugin validate .
+      # No `tsc` step: the generated types in <mod>/.claude-plugin/types/ are only
+      # written by an interactive Claude Code session, not by `plugin test`,
+      # `plugin validate` or `claude -p`, so type-checking is not possible in CI.

@@ -1,6 +1,7 @@
 import type { On } from "claude-code";
 import { describe, expect, mock, test, type Engine } from "claude-code/testing";
 
+import { cancelOnCloseFailure, type Hold } from "../hooks/blast-radius";
 import { classify, refusalAfterFailure } from "../hooks/classify";
 
 const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "", isStdoutTruncated: false, isStderrTruncated: false });
@@ -217,6 +218,40 @@ describe("refusalAfterFailure", () => {
 
   test("a command that cannot be classified is refused", () => {
     expect(refusalAfterFailure(undefined as never, throwFailure)).toContain("check failed");
+  });
+});
+
+// The kit cannot make the ui.close hook fail, so its `.catch` is called directly,
+// with a hold of the test's own (the engine loads the hooks module apart from this copy).
+describe("cancelOnCloseFailure", () => {
+  const stubNext = () => {
+    const calls: unknown[] = [];
+    return { calls, next: (e: unknown) => (calls.push(e), "closed") };
+  };
+
+  test("cancels a hold nobody has decided, and the close goes on once", () => {
+    const state: Hold = { isHolding: true, decision: null };
+    const { next, calls } = stubNext();
+    const event = { id: "blast-radius" };
+    expect(cancelOnCloseFailure(event, next, state)).toBe("closed");
+    expect(calls).toEqual([event]);
+    expect(state.decision).toBe("cancel");
+  });
+
+  test("never produces Proceed, and leaves a Proceed already pressed", () => {
+    const state: Hold = { isHolding: true, decision: "proceed" };
+    const { next, calls } = stubNext();
+    cancelOnCloseFailure({}, next, state);
+    expect(state.decision).toBe("proceed");
+    expect(calls).toHaveLength(1);
+  });
+
+  test("with nothing held it only lets the close go on", () => {
+    const state: Hold = { isHolding: false, decision: null };
+    const { next, calls } = stubNext();
+    expect(cancelOnCloseFailure({}, next, state)).toBe("closed");
+    expect(state.decision).toBe(null);
+    expect(calls).toHaveLength(1);
   });
 });
 

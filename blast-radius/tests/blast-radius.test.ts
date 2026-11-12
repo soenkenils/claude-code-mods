@@ -1,12 +1,12 @@
 import type { On } from "claude-code";
 import { describe, expect, mock, test, type Engine } from "claude-code/testing";
 
-import { classify } from "../hooks/classify";
+import { classify, refusalAfterFailure } from "../hooks/classify";
 
 const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "", isStdoutTruncated: false, isStderrTruncated: false });
 
 // What sits beneath the plugin in a session: the shell, git, the panes and Bash itself.
-function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>, cwdThrows = false } = {}) {
+function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>, cwdThrows = false, closeThrows = false } = {}) {
   const clock = mock.clock(on);
   const ran: string[] = [];
   on("session.cwd", () => {
@@ -22,7 +22,10 @@ function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>,
     return { value: ok(outputs[line] ?? "") };
   });
   on("ui.open", () => ({ value: isPlaced ? { isPlaced: true as const } : { isPlaced: false as const, reason: "narrow" } }));
-  on("ui.close", () => ({ value: undefined }));
+  on("ui.close", () => {
+    if (closeThrows) throw new Error("close failed");
+    return { value: undefined };
+  });
   on("ui.render", { component: "AbovePrompt" }, () => ({ type: "engine", ref: 0 }));
   on("tool.call", { tool: "Bash" }, (_$, e) => {
     ran.push(String(e.command));
@@ -60,7 +63,7 @@ async function shown(ui: Drawing) {
 }
 
 // Calls Bash with a risky command, lets the hook measure it and draw, and hands back the drawing.
-async function hold($: Engine, on: On, surface: Surface, command: string, opts: { isPlaced?: boolean; outputs?: Record<string, string>; maxRows?: number } = {}) {
+async function hold($: Engine, on: On, surface: Surface, command: string, opts: { isPlaced?: boolean; outputs?: Record<string, string>; maxRows?: number; closeThrows?: boolean } = {}) {
   const { clock, ran } = core(on, opts);
   const call = $.tool.call({ tool: "Bash", command });
   await clock.settle();
@@ -82,17 +85,110 @@ describe("classify", () => {
     "python manage.py migrate",
     "bin/rails db:migrate",
     "npx prisma migrate deploy",
+    // combined short flags that contain f
+    "git push -fu origin main",
+    "git push -uf origin",
+    // command prefixes and wrappers
+    "sudo -u root rm -rf x",
+    "sudo -E rm -rf x",
+    "env FOO=1 rm -rf x",
+    "env -u FOO rm -rf x",
+    "time rm -rf x",
+    "command rm -rf x",
+    "\\rm -rf x",
+    "/bin/rm -rf x",
+    "/usr/bin/git reset --hard",
+    "FOO=1 sudo rm -rf x",
+    // git global options before the subcommand
+    "git -C /x reset --hard",
+    "git -c a=b push --force",
+    "git --no-pager -C /x clean -fd",
+    // migrations
+    "./manage.py migrate",
+    "python3 ./manage.py migrate",
+    "sequelize db:migrate",
+    "npx sequelize-cli db:migrate",
+    "npx sequelize-cli db:migrate:undo",
+    "bundle exec rake db:migrate",
+    // other separators and groups
+    "sleep 1 & rm -rf x",
+    "(rm -rf x)",
+    "{ rm -rf x; }",
+    "echo a\nrm -rf x",
+    // a shell asked to run a string
+    "bash -c 'rm -rf x'",
+    'sh -c "git reset --hard"',
+    "bash -lc 'cd app && rm -rf x'",
   ]) {
     test(`holds: ${command}`, async () => {
       expect(classify(command)).not.toBe(null);
     });
   }
 
-  for (const command of ["rm file.txt", "rm -r empty-dir", "git reset HEAD~1", "git clean -n", "git push origin main", "ls -la", "echo rm -rf"]) {
+  for (const command of [
+    "rm file.txt",
+    "rm -r empty-dir",
+    "rm -f x",
+    "git reset HEAD~1",
+    "git clean -n",
+    "git push origin main",
+    "git push -u origin main",
+    "git -C /x status",
+    "sudo -u root ls",
+    "sudo ls -rf",
+    "env FOO=1 ls",
+    "ls -la",
+    "echo rm -rf",
+    "echo 'rm -rf x'",
+    "cmd 2>&1",
+    "bash -c 'ls'",
+    "bash script.sh",
+    "bundle exec rspec",
+    "npx sequelize-cli db:seed",
+  ]) {
     test(`lets through: ${command}`, async () => {
       expect(classify(command)).toBe(null);
     });
   }
+
+  // Known gaps, pinned so the README stays true: the command text is all it reads.
+  for (const command of ["echo $(rm -rf x)", "xargs rm -rf < list", "npm run migrate", "find . -delete", "x=$(git reset --hard)", "alias nuke='rm -rf'; nuke x"]) {
+    test(`still slips past: ${command}`, async () => {
+      expect(classify(command)).toBe(null);
+    });
+  }
+
+  test("the rm targets exclude group closers and flags", () => {
+    expect(classify("(rm -rf x y)")).toEqual({ kind: "rm", targets: ["x", "y"] });
+    expect(classify("/bin/rm -rf x")).toEqual({ kind: "rm", targets: ["x"] });
+  });
+});
+
+describe("refusalAfterFailure", () => {
+  const throwFailure = { kind: "throw", message: "boom", budget: 1000 } as const;
+  const timeoutFailure = { kind: "timeout", budget: 1000 } as const;
+
+  test("a safe command is not refused", () => {
+    expect(refusalAfterFailure("ls -la", throwFailure)).toBe(null);
+  });
+
+  test("a risky command is refused, with the reason", () => {
+    expect(refusalAfterFailure("rm -rf build", throwFailure)).toContain("check failed (boom)");
+  });
+
+  test("a timeout without a message reads well", () => {
+    const deny = refusalAfterFailure("rm -rf build", timeoutFailure);
+    expect(deny).toContain("check timed out");
+    expect(deny).not.toContain("undefined");
+  });
+
+  test("a timeout with a message gives it", () => {
+    expect(refusalAfterFailure("rm -rf build", { ...timeoutFailure, message: "slow" })).toContain("check timed out (slow)");
+  });
+
+  test("a command that cannot be classified is refused", () => {
+    expect(refusalAfterFailure(undefined as never, throwFailure)).toContain("check failed");
+  });
 });
 
 for (const surface of SURFACES) {
@@ -155,11 +251,29 @@ for (const surface of SURFACES) {
         expect(ran).toEqual([]);
       });
 
-      test("a failing check leaves a safe command alone", async ($, on) => {
-        const { ran } = core(on, { cwdThrows: true });
-        const result = await $.tool.call({ tool: "Bash", command: "ls -la" });
-        expect(result.deny).toBe(undefined);
-        expect(ran).toEqual(["ls -la"]);
+      test("a failing check says why, without a missing message", async ($, on) => {
+        core(on, { cwdThrows: true });
+        const result = await $.tool.call({ tool: "Bash", command: "rm -rf build" });
+        expect(result.deny).toContain("session.cwd");
+        expect(result.deny).not.toContain("undefined");
+      });
+
+      test("a failing close does not undo Run anyway", async ($, on) => {
+        const { clock, ran, call, ui } = await hold($, on, surface, "git reset --hard", { closeThrows: true });
+        await ui.press({ key: "proceed" });
+        await clock.advance(250);
+        expect((await call).deny).toBe(undefined);
+        expect(ran).toEqual(["git reset --hard"]);
+        await ui.unmount();
+      });
+
+      test("a failing close still denies on Cancel with the usual message", async ($, on) => {
+        const { clock, ran, call, ui } = await hold($, on, surface, "git reset --hard", { closeThrows: true });
+        await ui.press({ key: "cancel" });
+        await clock.advance(250);
+        expect((await call).deny).toContain("chose not to run it");
+        expect(ran).toEqual([]);
+        await ui.unmount();
       });
 
       test("leaves the band to core while nothing is held", async ($, on) => {

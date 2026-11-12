@@ -2,7 +2,7 @@ import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
 import type { BlastRadiusHeld, BlastRadiusLine } from "../types";
-import { classify } from "./classify";
+import { classify, refusalAfterFailure } from "./classify";
 import { measure } from "./report";
 
 const PANE = "blast-radius";
@@ -40,9 +40,11 @@ export const register: Register = (on) => {
         await $.process.run(["sleep", "0.25"]);
       }
     } finally {
+      // Cleanup must not fail the hook: a person who pressed Run anyway has
+      // decided, and a failed hook would turn that into a deny.
       isHolding = false;
-      await update($, held, () => null);
-      await $.ui.close({ id: PANE });
+      await update($, held, () => null).catch(() => {});
+      await $.ui.close({ id: PANE }).catch(() => {});
     }
 
     if (decision === "proceed") return next(e);
@@ -51,9 +53,11 @@ export const register: Register = (on) => {
     };
   }).catch(($, e, next) => {
     // A failed hook is skipped, which would let the risky command run.
-    // Refuse instead; if it had already passed the call on, keep that result.
+    // Refuse instead (a command that is not risky goes on); if it had
+    // already passed the call on, keep that result.
     if (next.called) return next(e);
-    return { deny: `Blast Radius's check failed (${next.error.message}), so this command was held: ${String(e.command ?? "")}. Ask the user how to proceed.` };
+    const deny = refusalAfterFailure(String(e.command ?? ""), next.error);
+    return deny === null ? next(e) : { deny };
   });
 
   // Closing the pane by hand (Escape, its close mark) counts as Cancel.
@@ -61,7 +65,9 @@ export const register: Register = (on) => {
     if (e.origin.kind === "person") decide("cancel");
     return next(e);
   }).catch(($, e, next) => {
-    // If the close cannot be read, the held command must not be left to run.
+    // Mostly here so the registration counts as a gating hook. If this hook
+    // fails, cancel the hold (a Proceed already pressed stays) and let the
+    // close go on; it never turns into Proceed.
     decide("cancel");
     return next(e);
   });

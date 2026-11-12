@@ -63,7 +63,9 @@ function configFrom(options: PluginOptions) {
 type Config = ReturnType<typeof configFrom>;
 type Watch = { inFlight: Map<string, { tool: string; detail: string; since: number }>; isTurnActive: boolean; lastActivity: number };
 
-// Heads-up only watches: when a hook of its own fails, the call or prompt goes on, exactly once (the `.catch` handlers).
+// Heads-up only watches, so it fails open. The pass-through `.catch` handlers on the gating hooks (prompt.submit,
+// tool.call) say so explicitly, and `claude plugin validate` asks for them; the engine would skip a failing hook anyway.
+// The command's `.catch` is what gives `/heads-up` an answer when it fails.
 export const register: Register = (on, options) => {
   const cfg = configFrom(options);
 

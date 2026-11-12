@@ -711,30 +711,26 @@ describe("notifications", () => {
 describe("when heads-up itself fails", () => {
   // The clock beneath it breaks (a hook that throws is skipped, and the call below it throws in turn),
   // so the hooks that read the time fail. It only observes, so nothing of the session may stop.
-  function brokenClock(on: On) {
+  function brokenClock(on: On, after?: string[]) {
     const fails = { on: false };
     on("clock.now", () => {
-      if (fails.on) throw new Error("no clock");
+      // `after`: only once a tool has run (the clock reads after `next`).
+      if (fails.on && (after === undefined || after.length > 0)) throw new Error("no clock");
       return { value: 0 };
     });
     on("clock.every", () => ({ value: undefined }) as never);
     return fails;
   }
 
-  test("a tool call still runs, once", async ($, on) => {
+  // Characterization of the engine, not of our `.catch`: this stays green with every `.catch` removed.
+  // The hook fails after the tool ran (its clock read after `next`); the call ran once and its result stands.
+  test("the engine keeps a tool call's one run and result when heads-up fails after it", async ($, on) => {
     const { ran } = core(on, undefined, undefined, true);
-    const fails = brokenClock(on);
+    const fails = brokenClock(on, ran);
     await start($);
     fails.on = true;
     expect(await bash($, "ls")).toMatchObject({ text: "ok" });
     expect(ran).toEqual(["Bash ls"]);
-  });
-
-  test("a prompt goes through, once", async ($, on) => {
-    const { prompts } = core(on);
-    await start($);
-    expect((await submit($, "hello")).text).toBe("hello");
-    expect(prompts).toEqual(["hello"]);
   });
 
   test("/heads-up says it failed", async ($, on) => {

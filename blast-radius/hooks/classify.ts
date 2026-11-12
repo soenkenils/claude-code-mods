@@ -18,11 +18,11 @@ const SHELLS = /^(bash|sh|zsh|dash)$/;
 // themselves and commands fed in through `xargs` slip past. A reminder, not
 // a security boundary.
 export function classify(command: string): BlastRadiusRisk | null {
-  for (const segment of command.split(/[;|&\n]/)) {
+  for (const segment of scan(command, (c) => /[;|&\n]/.test(c), false)) {
     // A subshell or group opens the segment; its closer then ends the last word.
     const body = segment.trim();
     const isGrouped = /^[({]/.test(body);
-    const words = body.replace(/^[({\s]+/, "").split(/\s+/).map(unquote).filter(Boolean);
+    const words = scan(body.replace(/^[({\s]+/, ""), (c) => /\s/.test(c), true).filter(Boolean);
     if (isGrouped && words.length > 0) words[words.length - 1] = words[words.length - 1]!.replace(/[)}]+$/, "");
     const risk = classifyWords(stripPrefixes(words.filter(Boolean)));
     if (risk) return risk;
@@ -66,7 +66,7 @@ function classifyWords(words: string[]): BlastRadiusRisk | null {
   }
 
   // `bash -c 'rm -rf x'`: the string is a command line of its own.
-  if (SHELLS.test(cmd ?? "") && /^-\w*c$/.test(words[1] ?? "")) return classify(words.slice(2).join(" "));
+  if (SHELLS.test(cmd ?? "") && /^-\w*c$/.test(words[1] ?? "")) return classify(words[2] ?? "");
 
   if (cmd === "git") {
     // Global options (`-C dir`, `-c k=v`, `--no-pager`) come before the subcommand.
@@ -97,8 +97,33 @@ function classifyWords(words: string[]): BlastRadiusRisk | null {
   return null;
 }
 
-function unquote(word: string) {
-  return word.replace(/^['"]|['"]$/g, "");
+// Cuts `text` at the characters `isBreak` accepts, except inside '…' or "…" and
+// after a backslash. `strip` drops the quote marks (for words); a backslash stays.
+// Not a shell parser: an unclosed quote runs to the end.
+function scan(text: string, isBreak: (c: string) => boolean, strip: boolean): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === "\\" && quote !== "'") {
+      current += c + (text[i + 1] ?? "");
+      i++;
+    } else if (quote !== null) {
+      if (c === quote) quote = null;
+      if (!strip || quote !== null) current += c;
+    } else if (c === "'" || c === '"') {
+      quote = c;
+      if (!strip) current += c;
+    } else if (isBreak(c)) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += c;
+    }
+  }
+  parts.push(current);
+  return parts;
 }
 
 // What the hook's `.catch` answers when the check itself failed: null lets a

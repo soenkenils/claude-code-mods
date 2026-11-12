@@ -119,6 +119,12 @@ describe("classify", () => {
     "bash -c 'rm -rf x'",
     'sh -c "git reset --hard"',
     "bash -lc 'cd app && rm -rf x'",
+    // a separator inside the string, and the string itself holds a risky command line
+    "bash -c 'cd x; rm -rf y'",
+    'sh -c "a && git reset --hard"',
+    // quotes closed before the real separator
+    "echo 'a' && rm -rf x",
+    'git commit -m "a" ; rm -rf x',
   ]) {
     test(`holds: ${command}`, async () => {
       expect(classify(command)).not.toBe(null);
@@ -140,6 +146,11 @@ describe("classify", () => {
     "ls -la",
     "echo rm -rf",
     "echo 'rm -rf x'",
+    // a separator inside quotes does not split
+    'git commit -m "a; rm -rf x"',
+    'echo "a && rm -rf x"',
+    "echo 'x | rm -rf y'",
+    "echo 'a\nrm -rf x'",
     "cmd 2>&1",
     "bash -c 'ls'",
     "bash script.sh",
@@ -157,6 +168,11 @@ describe("classify", () => {
       expect(classify(command)).toBe(null);
     });
   }
+
+  test("a quoted target is one target, without its quotes", () => {
+    expect(classify('rm -rf "my dir"')).toEqual({ kind: "rm", targets: ["my dir"] });
+    expect(classify("rm -rf 'a b' c")).toEqual({ kind: "rm", targets: ["a b", "c"] });
+  });
 
   test("the rm targets exclude group closers and flags", () => {
     expect(classify("(rm -rf x y)")).toEqual({ kind: "rm", targets: ["x", "y"] });

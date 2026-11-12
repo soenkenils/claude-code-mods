@@ -19,9 +19,11 @@ const SHELLS = /^(bash|sh|zsh|dash)$/;
 // a security boundary.
 export function classify(command: string): BlastRadiusRisk | null {
   for (const segment of command.split(/[;|&\n]/)) {
-    // A subshell or group opens the segment; its closer ends the last word.
-    const words = segment.trim().replace(/^[({\s]+/, "").split(/\s+/).map(unquote).filter(Boolean);
-    if (words.length > 0) words[words.length - 1] = words[words.length - 1]!.replace(/[)}]+$/, "");
+    // A subshell or group opens the segment; its closer then ends the last word.
+    const body = segment.trim();
+    const isGrouped = /^[({]/.test(body);
+    const words = body.replace(/^[({\s]+/, "").split(/\s+/).map(unquote).filter(Boolean);
+    if (isGrouped && words.length > 0) words[words.length - 1] = words[words.length - 1]!.replace(/[)}]+$/, "");
     const risk = classifyWords(stripPrefixes(words.filter(Boolean)));
     if (risk) return risk;
   }

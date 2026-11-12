@@ -161,6 +161,9 @@ describe("classify", () => {
   test("the rm targets exclude group closers and flags", () => {
     expect(classify("(rm -rf x y)")).toEqual({ kind: "rm", targets: ["x", "y"] });
     expect(classify("/bin/rm -rf x")).toEqual({ kind: "rm", targets: ["x"] });
+    // A closer that belongs to the target itself stays.
+    expect(classify("rm -rf ${DIR}")).toEqual({ kind: "rm", targets: ["${DIR}"] });
+    expect(classify("rm -rf $(pwd)")).toEqual({ kind: "rm", targets: ["$(pwd)"] });
   });
 });
 

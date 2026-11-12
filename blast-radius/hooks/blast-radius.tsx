@@ -49,11 +49,20 @@ export const register: Register = (on) => {
     return {
       deny: `Blast Radius held this command and the user chose not to run it: ${command}. Ask them how to proceed instead of retrying.`,
     };
+  }).catch(($, e, next) => {
+    // A failed hook is skipped, which would let the risky command run.
+    // Refuse instead; if it had already passed the call on, keep that result.
+    if (next.called) return next(e);
+    return { deny: `Blast Radius's check failed (${next.error.message}), so this command was held: ${String(e.command ?? "")}. Ask the user how to proceed.` };
   });
 
   // Closing the pane by hand (Escape, its close mark) counts as Cancel.
   on("ui.close", { id: PANE }, async ($, e, next) => {
     if (e.origin.kind === "person") decide("cancel");
+    return next(e);
+  }).catch(($, e, next) => {
+    // If the close cannot be read, the held command must not be left to run.
+    decide("cancel");
     return next(e);
   });
 

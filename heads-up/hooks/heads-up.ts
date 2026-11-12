@@ -63,6 +63,7 @@ function configFrom(options: PluginOptions) {
 type Config = ReturnType<typeof configFrom>;
 type Watch = { inFlight: Map<string, { tool: string; detail: string; since: number }>; isTurnActive: boolean; lastActivity: number };
 
+// Heads-up only watches: when a hook of its own fails, the call or prompt goes on, exactly once (the `.catch` handlers).
 export const register: Register = (on, options) => {
   const cfg = configFrom(options);
 
@@ -95,7 +96,7 @@ export const register: Register = (on, options) => {
     testFailures = 0;
     await resolve($, /^(failures|repeat):|^tests$/);
     return next(e);
-  });
+  }).catch(($, e, next) => next(e));
 
   on("turn.start", async ($, e, next) => {
     if (e.agentId === undefined) {
@@ -197,7 +198,7 @@ export const register: Register = (on, options) => {
     }
 
     return ran;
-  });
+  }).catch(($, e, next) => next(e));
 
   on("session.measure", async ($, e, next) => {
     const { tokens, window, percent } = e.context;
@@ -257,7 +258,7 @@ export const register: Register = (on, options) => {
     }
     if (arg !== "") return { text: "Usage: /heads-up [clear|off|on]" };
     return { text: await listing($) };
-  });
+  }).catch(() => ({ text: "Heads-up failed to answer. The session carries on." }));
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const active = (await read($, alerts)).filter((a) => a.status === "active");

@@ -12,12 +12,14 @@ type Call = { tool: string; [argument: string]: unknown };
 type Outcome = { text?: string; isError?: boolean; deny?: string; takes?: number };
 
 // What sits beneath the plugin in a session: the engine's answers, and the tools themselves.
-function core(on: On, script: (call: Call) => Outcome = () => ({}), where = { cwd: "/repo", root: "/repo" }) {
-  const clock = mock.clock(on);
+function core(on: On, script: (call: Call) => Outcome = () => ({}), where = { cwd: "/repo", root: "/repo" }, ownClock = false) {
+  // `ownClock`: the test answers the clock itself.
+  const clock = ownClock ? (undefined as never) : mock.clock(on);
   mock.env(on, { HOME: "/home/dev" });
   const toasts: string[] = [];
   const notices: string[] = [];
   const ran: string[] = [];
+  const prompts: string[] = [];
 
   on("session.start", (_$, e) => ({ cwd: e.cwd }));
   on("session.cwd", () => ({ value: where.cwd }));
@@ -32,7 +34,10 @@ function core(on: On, script: (call: Call) => Outcome = () => ({}), where = { cw
     return { value: { isSent: true, channel: "test" } } as never;
   });
   on("ui.render", { component: "AbovePrompt" }, () => ({ type: "engine", ref: 0 }));
-  on("prompt.submit", (_$, e) => ({ text: e.text }));
+  on("prompt.submit", (_$, e) => {
+    prompts.push(e.text);
+    return { text: e.text };
+  });
   on("turn.start", (_$, e) => ({ turnId: e.turnId }));
   on("turn.complete", () => ({ text: "" }));
   on("session.measure", (_$, e) => ({ changed: e.changed }));
@@ -45,7 +50,7 @@ function core(on: On, script: (call: Call) => Outcome = () => ({}), where = { cw
     const text = outcome.text ?? (outcome.isError ? "Exit code 1" : "ok");
     return (outcome.isError ? { isError: true, result: text, text } : { result: {}, text }) as never;
   });
-  return { clock, toasts, notices, ran };
+  return { clock, toasts, notices, ran, prompts };
 }
 
 const start = ($: Engine) => $.session.start({ cwd: "/repo", surface: "terminal", isInteractive: true });
@@ -72,6 +77,7 @@ function band($: Engine, props: { bodyColumns?: number; hasSurvey?: boolean; sur
     component: "AbovePrompt",
     props: {
       hasSurvey: props.hasSurvey ?? false,
+      isCollapsed: false,
       isWorking: false,
       maxRows: 10,
       bodyColumns: props.bodyColumns ?? 100,
@@ -699,5 +705,43 @@ describe("notifications", () => {
     const { notices } = core(on);
     await edit($, "/etc/hosts");
     expect(notices).toEqual(["Heads-up: Edit outside the project: /etc/hosts"]);
+  });
+});
+
+describe("when heads-up itself fails", () => {
+  // The clock beneath it breaks (a hook that throws is skipped, and the call below it throws in turn),
+  // so the hooks that read the time fail. It only observes, so nothing of the session may stop.
+  function brokenClock(on: On) {
+    const fails = { on: false };
+    on("clock.now", () => {
+      if (fails.on) throw new Error("no clock");
+      return { value: 0 };
+    });
+    on("clock.every", () => ({ value: undefined }) as never);
+    return fails;
+  }
+
+  test("a tool call still runs, once", async ($, on) => {
+    const { ran } = core(on, undefined, undefined, true);
+    const fails = brokenClock(on);
+    await start($);
+    fails.on = true;
+    expect(await bash($, "ls")).toMatchObject({ text: "ok" });
+    expect(ran).toEqual(["Bash ls"]);
+  });
+
+  test("a prompt goes through, once", async ($, on) => {
+    const { prompts } = core(on);
+    await start($);
+    expect((await submit($, "hello")).text).toBe("hello");
+    expect(prompts).toEqual(["hello"]);
+  });
+
+  test("/heads-up says it failed", async ($, on) => {
+    core(on, undefined, undefined, true);
+    const fails = brokenClock(on);
+    await start($);
+    fails.on = true;
+    expect((await slash($)).text).toContain("failed");
   });
 });

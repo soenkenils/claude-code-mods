@@ -158,7 +158,7 @@ export const register: Register = (on, options) => {
     } finally {
       await update($, isAsked, () => false);
     }
-  });
+  }).catch(($, e, next) => next(e));
 
   on("command.run", { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim().toLowerCase();
@@ -180,7 +180,7 @@ export const register: Register = (on, options) => {
     const pattern = patternFor(cfg, (await read($, chosen)) ?? cfg.patternId);
     const state = (await read($, isMuted)) ? "Breathe is off. /breathe on turns it back on." : "Breathe is on.";
     return { text: `${state} Pattern: ${hintFor(cfg, pattern)}.` };
-  });
+  }).catch(() => ({ text: "Breathe failed to answer. The session carries on." }));
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const current = await read($, run);

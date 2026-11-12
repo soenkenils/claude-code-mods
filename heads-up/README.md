@@ -2,6 +2,12 @@
 
 Watches the running Claude Code session and shows a heads-up when something is off, so you notice a stuck or drifting run without reading along. It draws a band above the prompt (terminal and Claude Desktop) and raises a toast for warnings. It never blocks a call: it only tells you.
 
+## Install
+
+```
+/plugin install heads-up --marketplace soenkenils/claude-code-mods
+```
+
 ## What it watches
 
 | Heads-up | Fires when | Clears when |

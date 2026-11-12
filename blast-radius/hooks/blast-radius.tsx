@@ -13,8 +13,10 @@ const held = atom({ plugin: "blast-radius", key: "held" } as const, null, { shap
 // The decision lives in the module, not in $.state: every $.state.get of one
 // dispatch reads one moment, so the waiting hook would never see a press.
 type Decision = "proceed" | "cancel";
-let isHolding = false;
-let decision: Decision | null = null;
+export type Hold = { isHolding: boolean; decision: Decision | null };
+const hold: Hold = { isHolding: false, decision: null };
+// Whether this hold has already told the person it waits behind a collapsed band.
+let isTold = false;
 
 export const register: Register = (on) => {
   on("tool.call", { tool: "Bash" }, async ($, e, next) => {
@@ -22,12 +24,13 @@ export const register: Register = (on) => {
     const risk = classify(command);
     if (risk === null) return next(e);
 
-    if (isHolding) {
+    if (hold.isHolding) {
       return { deny: "Blast Radius is already holding another command; run this one after it." };
     }
 
-    isHolding = true;
-    decision = null;
+    hold.isHolding = true;
+    hold.decision = null;
+    isTold = false;
     try {
       const report = await measure($, risk, await $.session.cwd());
       await update($, held, (): BlastRadiusHeld => ({ command, ...report, where: "pane" }));
@@ -36,18 +39,18 @@ export const register: Register = (on) => {
 
       // A `$` call in flight does not count against the hook's budget, so
       // short sleeps let us wait on the person for as long as they need.
-      while (decision === null && !next.signal.aborted) {
+      while (hold.decision === null && !next.signal.aborted) {
         await $.process.run(["sleep", "0.25"]);
       }
     } finally {
       // Cleanup must not fail the hook: a person who pressed Run anyway has
       // decided, and a failed hook would turn that into a deny.
-      isHolding = false;
+      hold.isHolding = false;
       await update($, held, () => null).catch(() => {});
       await $.ui.close({ id: PANE }).catch(() => {});
     }
 
-    if (decision === "proceed") return next(e);
+    if (hold.decision === "proceed") return next(e);
     return {
       deny: `Blast Radius held this command and the user chose not to run it: ${command}. Ask them how to proceed instead of retrying.`,
     };
@@ -64,13 +67,7 @@ export const register: Register = (on) => {
   on("ui.close", { id: PANE }, async ($, e, next) => {
     if (e.origin.kind === "person") decide("cancel");
     return next(e);
-  }).catch(($, e, next) => {
-    // Mostly here so the registration counts as a gating hook. If this hook
-    // fails, cancel the hold (a Proceed already pressed stays) and let the
-    // close go on; it never turns into Proceed.
-    decide("cancel");
-    return next(e);
-  });
+  }).catch(($, e, next) => cancelOnCloseFailure(e, next));
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e);
@@ -84,6 +81,7 @@ export const register: Register = (on) => {
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const current = await read($, held);
     if (current === null || current.where !== "band" || e.props.hasSurvey) return next(e);
+    if (e.props.isCollapsed) tellOnce($, current.command);
     // The band scrolls past `maxRows`; keep the buttons in view with a short list.
     const room = Math.max(2, Math.min(8, e.props.maxRows - 7));
     return warning($, e, current, { isPane: false, room });
@@ -162,6 +160,28 @@ function layout(sections: BlastRadiusHeld["sections"], room: number) {
   return { rows, hidden };
 }
 
-function decide(choice: Decision) {
-  if (isHolding && decision === null) decision = choice;
+// A collapsed band draws nothing, so a held command would wait unseen. Say it
+// once per hold, as a toast (it reads) and a notification (it reaches a person
+// who looked away); neither can fail the render.
+function tellOnce($: EngineInterface, command: string) {
+  if (isTold) return;
+  isTold = true;
+  const shortened = command.length > 80 ? `${command.slice(0, 79)}…` : command;
+  $.ui.toast(`Blast Radius is holding: ${shortened}. Expand the band (ctrl+x ctrl+a) to choose Run anyway or Cancel.`, { timeoutMs: 15000 });
+  $.ui.notify(`A command is waiting for your decision: ${shortened}`).catch(() => {});
+}
+
+// What the ui.close hook's `.catch` does, apart so a test can call it with a
+// stub `next` (the kit cannot make the hook fail). Mostly it is here so the
+// registration counts as a gating hook. A failed hook cancels the hold (a
+// Proceed already pressed stays) and lets the close go on; never Proceed.
+// `state` is the module's own hold; a test passes one of its own, as the
+// engine loads the hooks module apart from the test's copy.
+export function cancelOnCloseFailure<E, R>(e: E, next: (e: E) => R, state: Hold = hold): R {
+  decide("cancel", state);
+  return next(e);
+}
+
+function decide(choice: Decision, state: Hold = hold) {
+  if (state.isHolding && state.decision === null) state.decision = choice;
 }

@@ -158,7 +158,16 @@ export const register: Register = (on, options) => {
     } finally {
       await update($, isAsked, () => false);
     }
-  }).catch(($, e, next) => next(e));
+  }).catch(async ($, e, next) => {
+    // Breathe only decorates: it fails open. Should the update in `finally` have been what failed, the band must
+    // not stay hidden, so clear the flag (a failure of that too is not worth more).
+    try {
+      await update($, isAsked, () => false);
+    } catch {
+      // The next turn start clears it.
+    }
+    return next(e);
+  });
 
   on("command.run", { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim().toLowerCase();

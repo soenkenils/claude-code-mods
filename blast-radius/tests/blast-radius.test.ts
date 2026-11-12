@@ -6,7 +6,7 @@ import { classify, refusalAfterFailure } from "../hooks/classify";
 const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "", isStdoutTruncated: false, isStderrTruncated: false });
 
 // What sits beneath the plugin in a session: the shell, git, the panes and Bash itself.
-function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>, cwdThrows = false, closeThrows = false } = {}) {
+function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>, exits = {} as Record<string, number>, cwdThrows = false, closeThrows = false } = {}) {
   const clock = mock.clock(on);
   const ran: string[] = [];
   on("session.cwd", () => {
@@ -19,7 +19,7 @@ function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>,
       return { value: ok() };
     }
     const line = e.argv.join(" ");
-    return { value: ok(outputs[line] ?? "") };
+    return { value: { ...ok(outputs[line] ?? ""), exitCode: exits[line] ?? 0 } };
   });
   on("ui.open", () => ({ value: isPlaced ? { isPlaced: true as const } : { isPlaced: false as const, reason: "narrow" } }));
   on("ui.close", () => {
@@ -63,7 +63,7 @@ async function shown(ui: Drawing) {
 }
 
 // Calls Bash with a risky command, lets the hook measure it and draw, and hands back the drawing.
-async function hold($: Engine, on: On, surface: Surface, command: string, opts: { isPlaced?: boolean; outputs?: Record<string, string>; maxRows?: number; closeThrows?: boolean } = {}) {
+async function hold($: Engine, on: On, surface: Surface, command: string, opts: { isPlaced?: boolean; outputs?: Record<string, string>; exits?: Record<string, number>; maxRows?: number; closeThrows?: boolean } = {}) {
   const { clock, ran } = core(on, opts);
   const call = $.tool.call({ tool: "Bash", command });
   await clock.settle();
@@ -414,6 +414,37 @@ for (const surface of SURFACES) {
         await ui.unmount();
       });
 
+      test("one missing target does not blank the others, and is named", async ($, on) => {
+        const { clock, call, ui } = await hold($, on, surface, "rm -rf build missing", {
+          outputs: { "find build missing": "build\nbuild/a.js\n", "du -sh build missing": "4.0K\tbuild\n" },
+          exits: { "find build missing": 1, "du -sh build missing": 1 },
+        });
+        const text = await shown(ui);
+        expect(text).toContain("Deletes 2 files and folders");
+        expect(text).toContain("Could not list");
+        expect(text).toContain("missing");
+        expect(text).not.toContain("Nothing listed");
+        expect((await ui.find({ type: "Text", text: /Deletes/ }))?.props.color).toBe("error");
+        await ui.press({ key: "cancel" });
+        await clock.advance(250);
+        await call;
+        await ui.unmount();
+      });
+
+      test("a glob that listed nothing is named among the unlisted when others exist", async ($, on) => {
+        const { clock, call, ui } = await hold($, on, surface, "rm -rf build out/*", {
+          outputs: { "find build out/*": "build\n" },
+          exits: { "find build out/*": 1 },
+        });
+        const text = await shown(ui);
+        expect(text).toContain("Deletes 1 file or folder");
+        expect(text).toContain("out/*");
+        await ui.press({ key: "cancel" });
+        await clock.advance(250);
+        await call;
+        await ui.unmount();
+      });
+
       test("a force push lists the commits it would overwrite, hash beside subject", async ($, on) => {
         const { clock, call, ui } = await hold($, on, surface, "git push --force", {
           outputs: { "git log --oneline HEAD..@{u}": "abc123 Fix login\ndef456 Add tests\n" },
@@ -434,6 +465,32 @@ for (const surface of SURFACES) {
         });
         expect(await shown(ui)).toContain("Applies 2 pending migrations");
         expect(await shown(ui)).toContain("app.0003_drop_name");
+        await ui.press({ key: "cancel" });
+        await clock.advance(250);
+        await call;
+        await ui.unmount();
+      });
+
+      test("a django migrate falls back to python3 when python is not there", async ($, on) => {
+        const { clock, call, ui } = await hold($, on, surface, "python manage.py migrate", {
+          outputs: { "python3 manage.py showmigrations --plan": "[ ]  app.0002_add_email\n" },
+          exits: { "python manage.py showmigrations --plan": 127 },
+        });
+        expect(await shown(ui)).toContain("Applies 1 pending migration");
+        await ui.press({ key: "cancel" });
+        await clock.advance(250);
+        await call;
+        await ui.unmount();
+      });
+
+      test("a django migrate that could not be checked says so, in the danger tone", async ($, on) => {
+        const { clock, call, ui } = await hold($, on, surface, "python manage.py migrate", {
+          exits: { "python manage.py showmigrations --plan": 127, "python3 manage.py showmigrations --plan": 127 },
+        });
+        const text = await shown(ui);
+        expect(text).toContain("Could not check pending migrations");
+        expect(text).not.toContain("No pending migrations");
+        expect((await ui.find({ type: "Text", text: /Could not check/ }))?.props.color).toBe("error");
         await ui.press({ key: "cancel" });
         await clock.advance(250);
         await call;

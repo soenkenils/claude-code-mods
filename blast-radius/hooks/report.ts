@@ -9,10 +9,11 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 // Asks git, du and find what the command would hit, in the session's folder.
 // What cannot be asked (no upstream, no such path) comes back as "nothing".
 export async function measure($: EngineInterface, risk: BlastRadiusRisk, cwd: string): Promise<Report> {
-  const run = async (argv: string[]) => {
+  // `isLoose` keeps the output of a failed run: `find a missing` exits 1 yet lists `a`.
+  const run = async (argv: string[], isLoose = false) => {
     try {
       const r = await $.process.run(argv, { cwd });
-      return r.exitCode === 0 ? r.stdout.split("\n").filter(Boolean) : null;
+      return r.exitCode === 0 || isLoose ? r.stdout.split("\n").filter(Boolean) : null;
     } catch {
       return null;
     }
@@ -21,9 +22,14 @@ export async function measure($: EngineInterface, risk: BlastRadiusRisk, cwd: st
   switch (risk.kind) {
     case "rm": {
       if (risk.targets.length === 0) return { title: "Recursive force delete", tone: "caution", sections: [] };
-      const entries = (await run(["find", ...risk.targets])) ?? [];
-      const sizes = (await run(["du", "-sh", ...risk.targets])) ?? [];
+      const entries = (await run(["find", ...risk.targets], true)) ?? [];
+      const sizes = (await run(["du", "-sh", ...risk.targets], true)) ?? [];
       const dirty = (await run(["git", "status", "--porcelain", "--", ...risk.targets])) ?? [];
+      // find prints each target it can open, then what is below it.
+      const unlisted = risk.targets.filter((t) => {
+        const base = t.replace(/\/+$/, "");
+        return !entries.some((l) => l === t || l === base || l.startsWith(`${base}/`));
+      });
       if (entries.length === 0) {
         return {
           title: "Recursive force delete",
@@ -37,6 +43,7 @@ export async function measure($: EngineInterface, risk: BlastRadiusRisk, cwd: st
         sections: [
           { lines: sizes.map(sized) },
           { heading: `Uncommitted changes in ${plural(dirty.length, "file")}`, lines: porcelain(dirty) },
+          { heading: "Could not list (missing, or a glob or variable)", lines: unlisted.map((text) => ({ text })) },
         ],
       };
     }
@@ -68,7 +75,15 @@ export async function measure($: EngineInterface, risk: BlastRadiusRisk, cwd: st
     }
     case "migration": {
       if (risk.tool === "django") {
-        const plan = (await run(["python", "manage.py", "showmigrations", "--plan"])) ?? [];
+        // `python` may be absent where `python3` is not; null means it could not run.
+        const plan = (await run(["python", "manage.py", "showmigrations", "--plan"])) ?? (await run(["python3", "manage.py", "showmigrations", "--plan"]));
+        if (plan === null) {
+          return {
+            title: "Could not check pending migrations",
+            tone: "danger",
+            sections: [{ lines: [{ text: "Check which database this targets before going on." }] }],
+          };
+        }
         const pending = plan.filter((l) => l.startsWith("[ ]")).map((l) => l.slice(4));
         return {
           title: pending.length > 0 ? `Applies ${plural(pending.length, "pending migration")}` : "No pending migrations found",

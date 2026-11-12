@@ -1,6 +1,6 @@
 {
   "name": "blast-radius",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Holds risky Bash commands, shows what they would hit, and waits for Run anyway or Cancel, in the terminal and in Claude Desktop.",
   "author": { "name": "Sönke" },
   "types": "./types/index.d.ts"

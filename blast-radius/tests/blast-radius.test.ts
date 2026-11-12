@@ -6,10 +6,13 @@ import { classify } from "../hooks/classify";
 const ok = (stdout = "") => ({ exitCode: 0, stdout, stderr: "", isStdoutTruncated: false, isStderrTruncated: false });
 
 // What sits beneath the plugin in a session: the shell, git, the panes and Bash itself.
-function core(on: On, { isPlaced = true, outputs = {} as Record<string, string> } = {}) {
+function core(on: On, { isPlaced = true, outputs = {} as Record<string, string>, cwdThrows = false } = {}) {
   const clock = mock.clock(on);
   const ran: string[] = [];
-  on("session.cwd", () => ({ value: "/repo" }));
+  on("session.cwd", () => {
+    if (cwdThrows) throw new Error("no cwd");
+    return { value: "/repo" };
+  });
   on("process.run", async (_$, e) => {
     if (e.argv[0] === "sleep") {
       await clock.sleep(250);
@@ -46,7 +49,7 @@ function band($: Engine, surface: Surface, maxRows = 10) {
     plugin: "blast-radius",
     surface,
     component: "AbovePrompt",
-    props: { hasSurvey: false, isWorking: true, maxRows, bodyColumns: 80, scroll: { offset: 0, bodyRows: maxRows }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: 80, scroll: { offset: 0, bodyRows: maxRows }, view: {} },
   });
 }
 
@@ -143,6 +146,20 @@ for (const surface of SURFACES) {
         expect((await call).deny).toBe(undefined);
         expect(ran).toEqual(["git push --force"]);
         await ui.unmount();
+      });
+
+      test("a failing check holds a risky command instead of letting it run", async ($, on) => {
+        const { ran } = core(on, { cwdThrows: true });
+        const result = await $.tool.call({ tool: "Bash", command: "rm -rf build" });
+        expect(result.deny).toContain("check failed");
+        expect(ran).toEqual([]);
+      });
+
+      test("a failing check leaves a safe command alone", async ($, on) => {
+        const { ran } = core(on, { cwdThrows: true });
+        const result = await $.tool.call({ tool: "Bash", command: "ls -la" });
+        expect(result.deny).toBe(undefined);
+        expect(ran).toEqual(["ls -la"]);
       });
 
       test("leaves the band to core while nothing is held", async ($, on) => {

@@ -34,6 +34,7 @@ function band($: Engine, surface: Surface, props: { bodyColumns?: number; hasSur
     component: "AbovePrompt",
     props: {
       hasSurvey: props.hasSurvey ?? false,
+      isCollapsed: false,
       isWorking: false,
       maxRows: 10,
       bodyColumns: props.bodyColumns ?? 100,

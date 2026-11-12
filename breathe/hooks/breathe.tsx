@@ -115,6 +115,20 @@ type Ticker = {
   spoken?: string;
 };
 
+// The `.catch` of the question hook. Breathe only decorates: it fails open. Should the update in `finally` have
+// been what failed, the band must not stay hidden, so clear the flag (a failure of that too is not worth more).
+export async function clearAsked<E, R>($: EngineInterface, e: E, next: (e: E) => R): Promise<Awaited<R>> {
+  try {
+    await update($, isAsked, () => false);
+  } catch {
+    // The next turn start clears it.
+  }
+  return await next(e);
+}
+
+// The `.catch` of the /breathe command.
+export const commandFailed = () => ({ text: "Breathe failed to answer. The session carries on." });
+
 export const register: Register = (on, options) => {
   const cfg = configFrom(options);
 
@@ -158,16 +172,7 @@ export const register: Register = (on, options) => {
     } finally {
       await update($, isAsked, () => false);
     }
-  }).catch(async ($, e, next) => {
-    // Breathe only decorates: it fails open. Should the update in `finally` have been what failed, the band must
-    // not stay hidden, so clear the flag (a failure of that too is not worth more).
-    try {
-      await update($, isAsked, () => false);
-    } catch {
-      // The next turn start clears it.
-    }
-    return next(e);
-  });
+  }).catch(clearAsked);
 
   on("command.run", { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim().toLowerCase();
@@ -189,7 +194,7 @@ export const register: Register = (on, options) => {
     const pattern = patternFor(cfg, (await read($, chosen)) ?? cfg.patternId);
     const state = (await read($, isMuted)) ? "Breathe is off. /breathe on turns it back on." : "Breathe is on.";
     return { text: `${state} Pattern: ${hintFor(cfg, pattern)}.` };
-  }).catch(() => ({ text: "Breathe failed to answer. The session carries on." }));
+  }).catch(commandFailed);
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const current = await read($, run);

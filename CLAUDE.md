@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A collection of Claude Code **mods**: plugins whose behaviour is a TypeScript *hooks module* run by Claude Code's plugin engine (early-access API, may change between releases). Each top-level folder is one self-contained mod:
 
-- `blast-radius/` holds risky Bash commands (`rm -rf`, `git reset --hard`, `git clean -f`, force push, DB migrations), measures what they would touch, and waits for Proceed/Cancel in a pane (falling back to the above-prompt band).
+- `blast-radius/` holds risky Bash commands (`rm -rf`, `git reset --hard`, `git clean -f`, force push, DB migrations), measures what they would touch, and waits for Run anyway/Cancel in a pane (falling back to the above-prompt band).
 - `token-weather/` draws a context-window "forecast" with a sparkline above the prompt.
 - `heads-up/` watches the session (failing tools/tests in a row, edits outside the project, context spikes, stalls, repeated calls) and shows a band plus toasts; never blocks. Thresholds are `userConfig` in its `plugin.json`, read via `register(on, options)`; it also registers a `/heads-up` slash command. See `heads-up/README.md`.
 - `breathe/` shows a breathing guide (box 4-4-4-4 by default, or the hold-free `even` and `calm` patterns) above the prompt while Claude works (in the terminal one line of words and a bar, in Claude Desktop an aurora orb that expands and contracts), and finishes the breath in progress, ending on the exhale, after the turn ends. The breathing (`pacer.ts`) and the picture's drawing (`orb.ts`, a desktop SVG with the orb and the words in it that animates itself with SMIL) are pure files; a timer asks for a redraw (`$.ui.invalidate`) ten times a second for a line of text and about once a second for the picture. It steps aside while `AskUserQuestion` waits, and `speak` uses `$.audio.speak`. Options are `userConfig` in its `plugin.json`; it registers `/breathe [on|off|box|even|calm]`. See `breathe/README.md`.
@@ -50,10 +50,17 @@ These are from the generated type docs and they bite:
 - JSX compiles to the global `h`/`Fragment` (`jsx: "react"`, `jsxFactory: "h"`). Elements (`Box`, `Text`, `Button`, …) aren't globals; get them per render via `const { Box, Text } = $.ui.resolve(e)`. heads-up calls them as functions (`Text({ … })`) in a plain `.ts` file instead of using JSX. Both styles work.
 - Hooks follow a middleware shape: `on(event, filter?, async ($, e, next) => …)`. Return `next(e)` to pass through, or a result (e.g. `{ deny: "…" }` on `tool.call`) to short-circuit.
 - Persistent state: declare keys by augmenting `PluginState` in `declare module "claude-code"` inside `types/index.d.ts`, then use `$.state.get/set` (or the `atom`/`read`/`update` helpers). `plugin` and `key` must be **string literals in source** so `claude plugin validate` can read them. Host-held state survives hot reloads of the module; module-level variables don't.
-- Within one dispatch every `$.state.get` sees the same snapshot. That's why blast-radius keeps its Proceed/Cancel `decision` in a module variable and polls with `$.process.run(["sleep", "0.25"])`: an in-flight `$` call doesn't count against the hook's time budget.
+- Within one dispatch every `$.state.get` sees the same snapshot. That's why blast-radius keeps its Run anyway/Cancel `decision` in a module variable and polls with `$.process.run(["sleep", "0.25"])`: an in-flight `$` call doesn't count against the hook's time budget.
 - Give an `isInteractive` `Svg` its `width` and `height` props. Without them Claude Desktop draws it in a frame of 300 by 150 px, whatever size the markup's own `width`/`height` say, and fits the picture into that (measured on a screenshot of breathe, 2026-11-11: a 60 px picture came out 99 px high in a band of 170).
 - Pure logic lives in a sibling file with no `$` dependency (`classify.ts`/`report.ts`, `detect.ts`) so it can be unit-tested directly; the entry file holds hooks and rendering.
+- A failing hook is skipped by the engine (it fails open). A hook that guards something needs `.catch(($, e, next) => …)` on its registration to refuse instead; blast-radius does this. Observer mods (heads-up, breathe) add a pass-through `.catch(($, e, next) => next(e))` to state the intent.
 
 ## Testing pattern
 
 Tests build a fake "core" beneath the plugin by registering low-level handlers with the test's `on` (`session.cwd`, `process.run`, `ui.open`, `tool.call`, …) and use `mock.clock(on)` for time. Then they drive the engine through `$` (`$.tool.call`, `$.ui.mount({ plugin, surface, component, … })`, `ui.press({ key })`). Give Buttons a `key` so tests can press them. See `blast-radius/tests/blast-radius.test.ts` for the full pattern.
+
+A mod's shared test setup can live in a non-test helper module (`breathe/tests/helpers.ts`), imported by its `*.test.ts` files.
+
+## CI and docs
+
+`.github/workflows/ci.yml` runs `claude plugin test` and `claude plugin validate` for every mod, plus `claude plugin validate .` for the marketplace, on pull requests and pushes to main, with a pinned Claude Code version. There is no `tsc` step there: the generated types are only written by an interactive session. Every mod has a `README.md`; the repo root has `README.md` and an MIT `LICENSE`.

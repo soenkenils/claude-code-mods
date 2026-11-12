@@ -8,9 +8,15 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   mods:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,7 +24,9 @@ jobs:
           node-version: 22
       # Pinned to the newest release that was at least two weeks old when this
       # was written (2.1.322 was too fresh). `plugin test` and `plugin validate`
-      # run without authentication, so no secrets are needed.
+      # run without authentication, so no secrets are needed. Nothing updates this pin
+      # automatically: bump it by hand when the mods start using a newer API (local
+      # development is on a newer version).
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@2.1.312
       # Every top-level folder with a .claude-plugin/plugin.json is a mod.

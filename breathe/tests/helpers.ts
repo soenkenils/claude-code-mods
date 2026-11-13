@@ -60,8 +60,10 @@ export async function words($: Engine, surface: Surface, props?: Props) {
 }
 
 export const ENGINE = { type: "engine", ref: 0 };
-export const isEngine = async (ui: Band) => expect(await ui.drawn()).toEqual(ENGINE);
-export const isShown = async (ui: Band) => expect(await ui.drawn()).not.toEqual(ENGINE);
+// The engine's own node: nothing of the mod's is drawn. Its `ref` is the engine's business and
+// differs between versions (0 in 2.1.312, 2 in 2.1.323), so only the type is compared.
+export const isEngine = async (ui: Band) => expect(await ui.drawn()).toMatchObject({ type: "engine" });
+export const isShown = async (ui: Band) => expect(await ui.drawn()).not.toMatchObject({ type: "engine" });
 export const hide = (ui: Band) => ui.find({ type: "Button", key: "hide" });
 
 // The desktop's picture, as the surface gets it.

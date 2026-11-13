@@ -106,7 +106,8 @@ async function isQuiet($: Engine, props?: Parameters<typeof band>[1]) {
   const ui = await band($, props);
   const drawn = await ui.drawn();
   await ui.unmount();
-  return JSON.stringify(drawn) === JSON.stringify({ type: "engine", ref: 0 });
+  // The engine's own node, whatever `ref` this version of the engine gives it.
+  return (drawn as { type?: unknown } | null)?.type === "engine";
 }
 
 const fail = (text = "Exit code 1") => ({ isError: true, text });

@@ -439,16 +439,16 @@ describe("how often the band is drawn", () => {
     await ui.unmount();
   });
 
-  test("is about once a second for the desktop's picture, which moves by itself", noCountdown(), async ($, on) => {
+  // A redraw draws the close button anew, which flickers in Claude Desktop.
+  test("is not at all for the desktop's picture, which moves by itself", noCountdown(), async ($, on) => {
     const { drawn, clock } = counting(on);
     await start($);
     await beginTurn($);
     const ui = await band($, "desktop");
     await clock.advance(500);
     drawn.count = 0;
-    await clock.advance(5000);
-    expect(drawn.count).toBeGreaterThanOrEqual(3);
-    expect(drawn.count).toBeLessThanOrEqual(10);
+    await clock.advance(20_000); // more than a whole breath
+    expect(drawn.count).toBe(0);
     // And the picture is the one it was.
     await isShown(ui);
     await ui.unmount();

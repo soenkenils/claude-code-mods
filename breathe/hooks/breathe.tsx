@@ -40,13 +40,11 @@ const END_FADE_MS = 800; // fades out ending as the last exhale does,
 const HIDE_FADE_MS = 400; // and quickly when the Hide button is pressed.
 // The timer ticks every FRAME_MS, but only a band of text needs a redraw that often: the
 // desktop's picture animates itself. Once it has been drawn and no line of text has been for
-// LINE_FRESH_MS, a redraw goes out every QUIET_EVERY ticks, which also finds a line if one is
-// there again (a narrow window, a terminal that attached), and at the moment the band is due.
+// LINE_FRESH_MS, the timer asks for no redraw at all, but for the moment the band is due. A
+// redraw draws the close button anew, which flickers in Claude Desktop. What changes the band
+// (the turn ends, Hide, a question) is a change of state, and that redraws it by itself; so does
+// a surface that comes to draw a line (a narrow window, a terminal that attached).
 const LINE_FRESH_MS = 1500;
-const QUIET_EVERY = 10;
-// A picture not drawn for this long was not on screen (the band stepped aside, or the window was
-// away): it is drawn afresh, since its animation starts when the surface draws it.
-const STALE_MS = 3000;
 
 // Held by the host, so a reload of this file does not lose the breath in progress.
 const run = atom({ plugin: "breathe", key: "run" } as const, null, { shape: "run-3" });
@@ -138,7 +136,7 @@ export const register: Register = (on, options) => {
   // same source and the surface can keep the picture it has. It is drawn again only when the
   // run changes in a way the picture must know (the turn ended, or Hide was pressed), and a
   // reload draws it afresh, in step with the breath.
-  let orb: { startedAt: number; key: string; source: string; width: number; height: number; drawnAt: number } | undefined;
+  let orb: { startedAt: number; key: string; source: string; width: number; height: number } | undefined;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
@@ -170,6 +168,8 @@ export const register: Register = (on, options) => {
     try {
       return await next(e);
     } finally {
+      // The picture is drawn afresh when the band is back, in step with the breath.
+      orb = undefined;
       await update($, isAsked, () => false);
     }
   }).catch(clearAsked);
@@ -272,7 +272,6 @@ export const register: Register = (on, options) => {
     } else {
       const { Svg } = $.ui.resolve(e);
       const key = `${current.startedAt}:${current.finishAt}:${current.isHiding}`;
-      if (orb !== undefined && now - orb.drawnAt > STALE_MS) orb = undefined;
       if (orb === undefined || orb.key !== key) {
         // It fades in the first time a run shows it, not again when it is drawn anew.
         const isFirst = orb === undefined || orb.startedAt !== current.startedAt;
@@ -292,9 +291,8 @@ export const register: Register = (on, options) => {
           fadeInMs: isFirst ? FADE_IN_MS : 0,
           ...(fadeOut ? { fadeOut } : {}),
         });
-        orb = { startedAt: current.startedAt, key, source, ...size, drawnAt: now };
+        orb = { startedAt: current.startedAt, key, source, ...size };
       }
-      orb.drawnAt = now;
       const isFinishing = current.finishAt !== null && !current.isHiding;
       mine = (
         <Box flexDirection="row" alignItems="center" columnGap={2} paddingX={1}>
@@ -392,7 +390,7 @@ async function tick($: EngineInterface, ticker: Ticker, cfg: Config) {
     const appearsAt = current.startedAt - cfg.countdownMs;
     const isDue = before !== undefined && before < appearsAt && appearsAt <= now;
     const isQuiet = ticker.seenPicture !== undefined && (ticker.seenLine === undefined || now - ticker.seenLine > LINE_FRESH_MS);
-    if (!isQuiet || isDue || ticker.count % QUIET_EVERY === 0) $.ui.invalidate("ui.render");
+    if (!isQuiet || isDue) $.ui.invalidate("ui.render");
     if (cfg.isSpoken) await speak($, ticker, cfg, current, now);
   } catch {
     // The next tick tries again.

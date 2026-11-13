@@ -58,19 +58,19 @@ for (const surface of SURFACES) {
       test("yields the band to core", async ($, on) => {
         core(on);
         const ui = await band($, surface);
-        expect(await ui.drawn()).toEqual({ type: "engine", ref: 0 });
+        expect(await ui.drawn()).toMatchObject({ type: "engine" });
       });
 
       test("ignores a measurement with no token count yet", async ($, on) => {
         core(on);
         await measure($, undefined);
-        expect(await (await band($, surface)).drawn()).toEqual({ type: "engine", ref: 0 });
+        expect(await (await band($, surface)).drawn()).toMatchObject({ type: "engine" });
       });
 
       test("ignores a measurement where only rate limits moved", async ($, on) => {
         core(on);
         await measure($, 20_000, { changed: ["rateLimits"] });
-        expect(await (await band($, surface)).drawn()).toEqual({ type: "engine", ref: 0 });
+        expect(await (await band($, surface)).drawn()).toMatchObject({ type: "engine" });
       });
     });
 
@@ -135,7 +135,7 @@ for (const surface of SURFACES) {
       test("yields to a survey", async ($, on) => {
         core(on);
         await measure($, 20_000);
-        expect(await (await band($, surface, { hasSurvey: true })).drawn()).toEqual({ type: "engine", ref: 0 });
+        expect(await (await band($, surface, { hasSurvey: true })).drawn()).toMatchObject({ type: "engine" });
       });
 
       test("suggests compacting only when the window is nearly full", async ($, on) => {

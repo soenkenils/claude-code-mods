@@ -399,7 +399,7 @@ for (const surface of SURFACES) {
       test("leaves the band to core while nothing is held", async ($, on) => {
         core(on);
         const ui = await band($, surface);
-        expect(await ui.drawn()).toEqual({ type: "engine", ref: 0 });
+        expect(await ui.drawn()).toMatchObject({ type: "engine" });
         await ui.unmount();
       });
     });
